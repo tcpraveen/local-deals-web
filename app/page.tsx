@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 interface Deal {
   id: number;
@@ -12,41 +13,13 @@ interface Deal {
   image: string;
 }
 
-const INITIAL_DEALS: Deal[] = [
-  {
-    id: 1,
-    title: "Flat 30% Off on All Menswear",
-    business: "Max Fashion Store",
-    category: "Fashion",
-    discount: "30% OFF",
-    description: "Get 30% off on premium regular fit shirts, trousers, and casual wear this weekend.",
-    image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80",
-  },
-  {
-    id: 2,
-    title: "Special Portrait Photography Package",
-    business: "Jebin Studio",
-    category: "Services",
-    discount: "20% OFF",
-    description: "Full studio portrait sessions, candid event shoots, and album design discounts.",
-    image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=800&q=80",
-  },
-  {
-    id: 3,
-    title: "Event Booking & Banquet Hall Discount",
-    business: "Veerabahu Mahal",
-    category: "Venues",
-    discount: "Flat ₹5,000 OFF",
-    description: "Special early reservation discounts for wedding receptions, parties, and corporate events.",
-    image: "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=800&q=80",
-  },
-];
-
 export default function Home() {
-  const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState("All");
   const [search, setSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Form State
   const [title, setTitle] = useState("");
@@ -58,35 +31,72 @@ export default function Home() {
 
   const categories = ["All", "Fashion", "Services", "Venues", "Food", "Retail"];
 
-  const handleAddDeal = (e: React.FormEvent) => {
+  const fetchDeals = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("deals")
+      .select("*")
+      .order("id", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching deals:", error.message);
+    } else if (data) {
+      setDeals(data);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchDeals();
+  }, []);
+
+  const handleAddDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !business) return;
 
-    const newDeal: Deal = {
-      id: Date.now(),
+    setSubmitting(true);
+    const newDeal = {
       title,
       business,
       category,
       discount: discount || "Special Offer",
       description: description || "Exclusive local deal available now.",
-      image: image || "https://images.unsplash.com/photo-1526178613552-2b45c6c302f0?w=800&q=80",
+      image:
+        image ||
+        "https://images.unsplash.com/photo-1526178613552-2b45c6c302f0?w=800&q=80",
     };
 
-    setDeals([newDeal, ...deals]);
-    setTitle("");
-    setBusiness("");
-    setDiscount("");
-    setDescription("");
-    setImage("");
-    setIsModalOpen(false);
+    const { data, error } = await supabase
+      .from("deals")
+      .insert([newDeal])
+      .select();
+
+    if (error) {
+      alert("Error adding deal: " + error.message);
+    } else if (data && data.length > 0) {
+      setDeals([data[0], ...deals]);
+      setTitle("");
+      setBusiness("");
+      setDiscount("");
+      setDescription("");
+      setImage("");
+      setIsModalOpen(false);
+    }
+    setSubmitting(false);
   };
 
-  const handleDeleteDeal = (id: number) => {
-    setDeals(deals.filter((d) => d.id !== id));
+  const handleDeleteDeal = async (id: number) => {
+    const { error } = await supabase.from("deals").delete().eq("id", id);
+    if (error) {
+      alert("Error deleting deal: " + error.message);
+    } else {
+      setDeals(deals.filter((d) => d.id !== id));
+    }
   };
 
   const filteredDeals = deals.filter((d) => {
-    const matchesCategory = activeCategory === "All" || d.category === activeCategory;
+    const matchesCategory =
+      activeCategory === "All" || d.category === activeCategory;
     const matchesSearch =
       d.title.toLowerCase().includes(search.toLowerCase()) ||
       d.business.toLowerCase().includes(search.toLowerCase());
@@ -95,14 +105,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased">
-      {/* Navbar */}
       <header className="border-b border-slate-800/80 bg-slate-900/50 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-              Local Deals Hub
-            </span>
-          </div>
+          <span className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Local Deals Hub
+          </span>
           <button
             onClick={() => setIsModalOpen(true)}
             className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-500 rounded-lg shadow transition"
@@ -112,10 +119,9 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Hero Banner */}
       <section className="py-12 px-4 sm:px-6 text-center max-w-4xl mx-auto space-y-4">
         <span className="px-3 py-1 text-xs font-semibold uppercase tracking-wider bg-blue-900/40 text-blue-400 rounded-full border border-blue-700/50">
-          Hyperlocal Marketplace
+          Supabase Live Database
         </span>
         <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
           Discover Verified Local Discounts & Services
@@ -124,7 +130,6 @@ export default function Home() {
           Browse active promotions from top-rated neighborhood stores, studios, and venues.
         </p>
 
-        {/* Search Bar */}
         <div className="pt-4 max-w-lg mx-auto">
           <input
             type="text"
@@ -135,7 +140,6 @@ export default function Home() {
           />
         </div>
 
-        {/* Category Pills */}
         <div className="flex flex-wrap justify-center gap-2 pt-2">
           {categories.map((cat) => (
             <button
@@ -153,11 +157,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Deals Grid */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-20">
-        {filteredDeals.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-16 text-slate-400 text-sm">
+            Loading deals from database...
+          </div>
+        ) : filteredDeals.length === 0 ? (
           <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80">
-            <p className="text-slate-400">No deals match your search criteria.</p>
+            <p className="text-slate-400">No deals in database yet. Post your first deal above!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -181,14 +188,27 @@ export default function Home() {
                 </div>
                 <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
                   <div>
-                    <p className="text-xs text-blue-400 font-semibold uppercase">{deal.business}</p>
-                    <h3 className="text-lg font-bold text-white mt-1 leading-snug">{deal.title}</h3>
-                    <p className="text-xs text-slate-400 mt-2 line-clamp-2">{deal.description}</p>
+                    <p className="text-xs text-blue-400 font-semibold uppercase">
+                      {deal.business}
+                    </p>
+                    <h3 className="text-lg font-bold text-white mt-1 leading-snug">
+                      {deal.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-2 line-clamp-2">
+                      {deal.description}
+                    </p>
                   </div>
                   <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
-                    <button className="text-blue-400 hover:text-blue-300 font-semibold">
-                      Claim Deal →
-                    </button>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        deal.business
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 font-semibold"
+                    >
+                      View on Maps →
+                    </a>
                     <button
                       onClick={() => handleDeleteDeal(deal.id)}
                       className="text-red-400 hover:text-red-300 transition"
@@ -203,13 +223,16 @@ export default function Home() {
         )}
       </main>
 
-      {/* Add Deal Modal */}
+      {/* Post Deal Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h2 className="text-lg font-bold text-white">Post New Local Deal</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
                 ✕
               </button>
             </div>
@@ -292,9 +315,10 @@ export default function Home() {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold text-white transition"
+                  disabled={submitting}
+                  className="w-1/2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg font-semibold text-white transition"
                 >
-                  Publish Deal
+                  {submitting ? "Saving..." : "Publish Deal"}
                 </button>
               </div>
             </form>
