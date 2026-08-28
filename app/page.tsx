@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 interface Deal {
   id?: string | number;
@@ -12,6 +13,7 @@ interface Deal {
   image: string;
   description: string;
   phone?: string;
+  user_id?: string;
 }
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
@@ -21,6 +23,16 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Auth State
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Post Deal Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -35,7 +47,23 @@ export default function Home() {
     phone: '',
   });
 
-  // Fetch deals from Supabase
+  // Track Auth State & Fetch Deals
+  useEffect(() => {
+    fetchDeals();
+
+    // Check current auth session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const fetchDeals = async () => {
     try {
       setLoading(true);
@@ -53,11 +81,41 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    fetchDeals();
-  }, []);
+  // Auth Handlers
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
 
-  // Upload image to Supabase Storage Bucket
+    try {
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        alert('Registration successful! You can now log in or check your email for confirmation.');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+      }
+      setIsAuthModalOpen(false);
+      setEmail('');
+      setPassword('');
+    } catch (err: any) {
+      alert(`Authentication error: ${err.message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Upload image to Supabase Storage
   const handleImageUpload = async (file: File) => {
     try {
       setUploading(true);
@@ -83,9 +141,15 @@ export default function Home() {
     }
   };
 
-  // Submit Deal
+  // Create Deal (Authenticated)
   const handleCreateDeal = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      alert('You must be logged in as a merchant to post a deal.');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     if (!formData.title || !formData.business) {
       alert('Please fill out the deal title and business name.');
       return;
@@ -106,7 +170,6 @@ export default function Home() {
 
       if (error) throw error;
 
-      // Reset & Refresh
       setFormData({
         title: '',
         business: '',
@@ -125,7 +188,7 @@ export default function Home() {
     }
   };
 
-  // Filter deals by category and search
+  // Filter deals
   const filteredDeals = deals.filter((deal) => {
     const matchesCategory =
       selectedCategory === 'All' ||
@@ -144,17 +207,35 @@ export default function Home() {
       {/* Navigation */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/60 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <span className="text-xl font-bold tracking-tight text-white">
+            Local Deals Hub
+          </span>
+
           <div className="flex items-center gap-3">
-            <span className="text-xl font-bold tracking-tight text-white">
-              Local Deals Hub
-            </span>
+            {user ? (
+              <>
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition shadow-lg shadow-blue-500/20"
+                >
+                  + Post a Deal
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs px-3 py-2 rounded-lg transition"
+                >
+                  Log Out
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition shadow-lg shadow-blue-500/20"
+              >
+                Merchant Sign In
+              </button>
+            )}
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition shadow-lg shadow-blue-500/20"
-          >
-            + Post a Deal
-          </button>
         </div>
       </header>
 
@@ -162,7 +243,7 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center max-w-3xl mx-auto space-y-4 mb-10">
           <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
-            Supabase Live Database
+            {user ? `Logged In as Merchant (${user.email})` : 'Supabase Authenticated'}
           </span>
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
             Discover Verified Local Discounts & Services
@@ -205,7 +286,7 @@ export default function Home() {
           <div className="text-center py-20 text-slate-500">Loading live deals...</div>
         ) : filteredDeals.length === 0 ? (
           <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
-            <p className="text-slate-400 text-base">No deals found. Post your first deal above!</p>
+            <p className="text-slate-400 text-base">No deals found. Sign in as a merchant to publish new listings!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -260,7 +341,70 @@ export default function Home() {
         )}
       </main>
 
-      {/* Post a Deal Modal */}
+      {/* Auth Modal (Sign In / Sign Up) */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-lg font-bold text-white">
+                {isSignUp ? 'Merchant Registration' : 'Merchant Sign In'}
+              </h2>
+              <button
+                onClick={() => setIsAuthModalOpen(false)}
+                className="text-slate-400 hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAuth} className="space-y-4 text-sm">
+              <div>
+                <label className="block text-slate-400 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="store@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg transition"
+              >
+                {authLoading ? 'Processing...' : isSignUp ? 'Create Account' : 'Sign In'}
+              </button>
+            </form>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => setIsSignUp(!isSignUp)}
+                className="text-xs text-blue-400 hover:underline"
+              >
+                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post Deal Modal (Authenticated) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
@@ -326,7 +470,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Direct File Upload to Supabase Storage */}
               <div>
                 <label className="block text-slate-400 mb-1">Deal Image (File Upload)</label>
                 <input
