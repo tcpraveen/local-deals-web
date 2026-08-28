@@ -1,221 +1,258 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface Deal {
-  id: number;
+  id?: string | number;
   title: string;
   business: string;
-  category: string;
   discount: string;
-  description: string;
+  category: string;
   image: string;
+  description: string;
+  phone?: string;
 }
+
+const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 
 export default function Home() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form State
-  const [title, setTitle] = useState("");
-  const [business, setBusiness] = useState("");
-  const [category, setCategory] = useState("Retail");
-  const [discount, setDiscount] = useState("");
-  const [description, setDescription] = useState("");
-  const [image, setImage] = useState("");
+  const [formData, setFormData] = useState<Deal>({
+    title: '',
+    business: '',
+    discount: '',
+    category: 'Retail',
+    image: '',
+    description: '',
+    phone: '',
+  });
 
-  const categories = ["All", "Fashion", "Services", "Venues", "Food", "Retail"];
-
+  // Fetch deals from Supabase
   const fetchDeals = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("deals")
-      .select("*")
-      .order("id", { ascending: false });
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('deals')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error("Error fetching deals:", error.message);
-    } else if (data) {
-      setDeals(data);
+      if (error) throw error;
+      setDeals(data || []);
+    } catch (err: any) {
+      console.error('Error fetching deals:', err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     fetchDeals();
   }, []);
 
-  const handleAddDeal = async (e: React.FormEvent) => {
+  // Upload image to Supabase Storage Bucket
+  const handleImageUpload = async (file: File) => {
+    try {
+      setUploading(true);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+      const filePath = `uploads/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('deal-images')
+        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('deal-images')
+        .getPublicUrl(filePath);
+
+      setFormData((prev) => ({ ...prev, image: data.publicUrl }));
+    } catch (err: any) {
+      alert(`Image upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Submit Deal
+  const handleCreateDeal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !business) return;
+    if (!formData.title || !formData.business) {
+      alert('Please fill out the deal title and business name.');
+      return;
+    }
 
-    setSubmitting(true);
-    const newDeal = {
-      title,
-      business,
-      category,
-      discount: discount || "Special Offer",
-      description: description || "Exclusive local deal available now.",
-      image:
-        image ||
-        "https://images.unsplash.com/photo-1526178613552-2b45c6c302f0?w=800&q=80",
-    };
+    try {
+      setSubmitting(true);
+      const { error } = await supabase.from('deals').insert([
+        {
+          title: formData.title,
+          business: formData.business,
+          discount: formData.discount || 'Special Offer',
+          category: formData.category,
+          image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
+          description: formData.description,
+        },
+      ]);
 
-    const { data, error } = await supabase
-      .from("deals")
-      .insert([newDeal])
-      .select();
+      if (error) throw error;
 
-    if (error) {
-      alert("Error adding deal: " + error.message);
-    } else if (data && data.length > 0) {
-      setDeals([data[0], ...deals]);
-      setTitle("");
-      setBusiness("");
-      setDiscount("");
-      setDescription("");
-      setImage("");
+      // Reset & Refresh
+      setFormData({
+        title: '',
+        business: '',
+        discount: '',
+        category: 'Retail',
+        image: '',
+        description: '',
+        phone: '',
+      });
       setIsModalOpen(false);
-    }
-    setSubmitting(false);
-  };
-
-  const handleDeleteDeal = async (id: number) => {
-    const { error } = await supabase.from("deals").delete().eq("id", id);
-    if (error) {
-      alert("Error deleting deal: " + error.message);
-    } else {
-      setDeals(deals.filter((d) => d.id !== id));
+      await fetchDeals();
+    } catch (err: any) {
+      alert(`Error saving deal: ${err.message}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const filteredDeals = deals.filter((d) => {
+  // Filter deals by category and search
+  const filteredDeals = deals.filter((deal) => {
     const matchesCategory =
-      activeCategory === "All" || d.category === activeCategory;
+      selectedCategory === 'All' ||
+      deal.category?.toLowerCase() === selectedCategory.toLowerCase();
+
     const matchesSearch =
-      d.title.toLowerCase().includes(search.toLowerCase()) ||
-      d.business.toLowerCase().includes(search.toLowerCase());
+      deal.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      deal.business?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      deal.description?.toLowerCase().includes(searchQuery.toLowerCase());
+
     return matchesCategory && matchesSearch;
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 antialiased">
-      <header className="border-b border-slate-800/80 bg-slate-900/50 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <span className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-            Local Deals Hub
-          </span>
+    <div className="min-h-screen bg-[#070b14] text-slate-100 antialiased font-sans">
+      {/* Navigation */}
+      <header className="border-b border-slate-800/80 bg-[#0a101d]/60 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-bold tracking-tight text-white">
+              Local Deals Hub
+            </span>
+          </div>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-500 rounded-lg shadow transition"
+            className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition shadow-lg shadow-blue-500/20"
           >
             + Post a Deal
           </button>
         </div>
       </header>
 
-      <section className="py-12 px-4 sm:px-6 text-center max-w-4xl mx-auto space-y-4">
-        <span className="px-3 py-1 text-xs font-semibold uppercase tracking-wider bg-blue-900/40 text-blue-400 rounded-full border border-blue-700/50">
-          Supabase Live Database
-        </span>
-        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
-          Discover Verified Local Discounts & Services
-        </h1>
-        <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Browse active promotions from top-rated neighborhood stores, studios, and venues.
-        </p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Hero Section */}
+        <div className="text-center max-w-3xl mx-auto space-y-4 mb-10">
+          <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
+            Supabase Live Database
+          </span>
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
+            Discover Verified Local Discounts & Services
+          </h1>
+          <p className="text-slate-400 text-base sm:text-lg">
+            Browse active promotions from top-rated neighborhood stores, studios, and venues.
+          </p>
+        </div>
 
-        <div className="pt-4 max-w-lg mx-auto">
+        {/* Search Bar */}
+        <div className="max-w-xl mx-auto mb-8">
           <input
             type="text"
             placeholder="Search deals or store names..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
           />
         </div>
 
-        <div className="flex flex-wrap justify-center gap-2 pt-2">
-          {categories.map((cat) => (
+        {/* Category Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-12">
+          {CATEGORIES.map((cat) => (
             <button
               key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeCategory === cat
-                  ? "bg-blue-600 text-white shadow"
-                  : "bg-slate-900 hover:bg-slate-800 text-slate-400"
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+                selectedCategory === cat
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'bg-[#0f172a] text-slate-400 hover:text-white border border-slate-800/80 hover:border-slate-700'
               }`}
             >
               {cat}
             </button>
           ))}
         </div>
-      </section>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-20">
+        {/* Listings Grid */}
         {loading ? (
-          <div className="text-center py-16 text-slate-400 text-sm">
-            Loading deals from database...
-          </div>
+          <div className="text-center py-20 text-slate-500">Loading live deals...</div>
         ) : filteredDeals.length === 0 ? (
-          <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80">
-            <p className="text-slate-400">No deals in database yet. Post your first deal above!</p>
+          <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
+            <p className="text-slate-400 text-base">No deals found. Post your first deal above!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDeals.map((deal) => (
               <div
                 key={deal.id}
-                className="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700 transition flex flex-col group"
+                className="bg-[#0e1626] border border-slate-800 rounded-2xl overflow-hidden shadow-xl hover:border-slate-700 transition flex flex-col justify-between"
               >
-                <div className="relative h-48 w-full bg-slate-800 overflow-hidden">
-                  <img
-                    src={deal.image}
-                    alt={deal.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                  />
-                  <span className="absolute top-3 right-3 bg-blue-600 text-white font-bold text-xs px-2.5 py-1 rounded-md shadow">
-                    {deal.discount}
-                  </span>
-                  <span className="absolute top-3 left-3 bg-slate-950/80 text-slate-300 text-xs px-2 py-0.5 rounded backdrop-blur">
-                    {deal.category}
-                  </span>
-                </div>
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                  <div>
-                    <p className="text-xs text-blue-400 font-semibold uppercase">
+                <div>
+                  <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
+                    <img
+                      src={deal.image}
+                      alt={deal.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute top-3 right-3 bg-red-500/90 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow">
+                      {deal.discount}
+                    </span>
+                    <span className="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10">
+                      {deal.category}
+                    </span>
+                  </div>
+
+                  <div className="p-5">
+                    <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
                       {deal.business}
-                    </p>
-                    <h3 className="text-lg font-bold text-white mt-1 leading-snug">
+                    </span>
+                    <h3 className="text-lg font-bold text-white mt-1 mb-2">
                       {deal.title}
                     </h3>
-                    <p className="text-xs text-slate-400 mt-2 line-clamp-2">
-                      {deal.description}
+                    <p className="text-sm text-slate-400 line-clamp-2">
+                      {deal.description || 'Visit store to claim this offer.'}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
-                    <a
-                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                        deal.business
-                      )}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:text-blue-300 font-semibold"
-                    >
-                      View on Maps →
-                    </a>
-                    <button
-                      onClick={() => handleDeleteDeal(deal.id)}
-                      className="text-red-400 hover:text-red-300 transition"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                </div>
+
+                <div className="p-5 pt-0">
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(
+                      `Hi! I saw your deal "${deal.title}" on Local Deals Hub and would like to claim it.`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-center w-full bg-slate-800/80 hover:bg-emerald-600 text-slate-200 hover:text-white font-semibold text-sm py-2.5 rounded-xl transition"
+                  >
+                    Claim via WhatsApp →
+                  </a>
                 </div>
               </div>
             ))}
@@ -223,102 +260,115 @@ export default function Home() {
         )}
       </main>
 
-      {/* Post Deal Modal */}
+      {/* Post a Deal Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-lg font-bold text-white">Post New Local Deal</h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white text-xl"
               >
                 ✕
               </button>
             </div>
-            <form onSubmit={handleAddDeal} className="space-y-3 text-xs">
+
+            <form onSubmit={handleCreateDeal} className="space-y-4 text-sm">
               <div>
                 <label className="block text-slate-400 mb-1">Deal Title *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 20% Off Weekend Special"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. Flat 30% Off Menswear"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
+
               <div>
                 <label className="block text-slate-400 mb-1">Business Name *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Jebin Studio"
-                  value={business}
-                  onChange={(e) => setBusiness(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. Max Fashion"
+                  value={formData.business}
+                  onChange={(e) => setFormData({ ...formData, business: e.target.value })}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Discount Tag</label>
                   <input
                     type="text"
                     placeholder="e.g. 30% OFF"
-                    value={discount}
-                    onChange={(e) => setDiscount(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    value={formData.discount}
+                    onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
                   <label className="block text-slate-400 mb-1">Category</label>
                   <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   >
-                    <option value="Fashion">Fashion</option>
-                    <option value="Services">Services</option>
-                    <option value="Venues">Venues</option>
-                    <option value="Food">Food</option>
-                    <option value="Retail">Retail</option>
+                    {CATEGORIES.filter((c) => c !== 'All').map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
+
+              {/* Direct File Upload to Supabase Storage */}
               <div>
-                <label className="block text-slate-400 mb-1">Photo Link (URL)</label>
+                <label className="block text-slate-400 mb-1">Deal Image (File Upload)</label>
                 <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/..."
-                  value={image}
-                  onChange={(e) => setImage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImageUpload(file);
+                  }}
+                  className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
                 />
+                {uploading && <p className="text-xs text-blue-400 mt-1">Uploading image...</p>}
+                {formData.image && !uploading && (
+                  <p className="text-xs text-emerald-400 mt-1">Image uploaded successfully!</p>
+                )}
               </div>
+
               <div>
                 <label className="block text-slate-400 mb-1">Description</label>
                 <textarea
-                  rows={2}
-                  placeholder="Describe your deal details..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  rows={3}
+                  placeholder="Describe your offer, terms, and conditions..."
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div className="flex gap-2 pt-2">
+
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg font-semibold text-slate-300 transition"
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="w-1/2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg font-semibold text-white transition"
+                  disabled={uploading || submitting}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg"
                 >
-                  {submitting ? "Saving..." : "Publish Deal"}
+                  {submitting ? 'Publishing...' : 'Publish Deal'}
                 </button>
               </div>
             </form>
