@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 
 interface Deal {
-  id?: string | number;
+  id: number;
   title: string;
   business: string;
   discount: string;
@@ -17,16 +17,26 @@ interface Deal {
   expires_at?: string;
   image: string;
   description: string;
+  views_count?: number;
+  inquiries_count?: number;
 }
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
+const SORT_OPTIONS = [
+  { label: 'Latest Added', value: 'latest' },
+  { label: 'Price: Low to High', value: 'price_asc' },
+  { label: 'Price: High to Low', value: 'price_desc' },
+  { label: 'Biggest Discount', value: 'discount' },
+  { label: 'Ending Soon', value: 'expiry' },
+];
 
 export default function Home() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLocation, setSelectedLocation] = useState('All');
+  const [sortBy, setSortBy] = useState('latest');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Auth State
@@ -39,11 +49,11 @@ export default function Home() {
 
   // Post/Edit Deal Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingDealId, setEditingDealId] = useState<string | number | null>(null);
+  const [editingDealId, setEditingDealId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const [formData, setFormData] = useState<Deal>({
+  const [formData, setFormData] = useState<Partial<Deal>>({
     title: '',
     business: '',
     discount: '',
@@ -86,6 +96,18 @@ export default function Home() {
       console.error('Error fetching deals:', err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Metrics Tracker Handler
+  const trackInquiry = async (dealId: number) => {
+    try {
+      await supabase.rpc('increment_deal_metric', { deal_id: dealId, metric_type: 'inquiry' });
+      setDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? { ...d, inquiries_count: (d.inquiries_count || 0) + 1 } : d))
+      );
+    } catch (e) {
+      console.error('Inquiry increment failed', e);
     }
   };
 
@@ -200,7 +222,6 @@ export default function Home() {
         if (error) throw error;
       }
 
-      // Reset Form State
       setFormData({
         title: '',
         business: '',
@@ -225,8 +246,7 @@ export default function Home() {
   };
 
   // Delete Deal Handler
-  const handleDeleteDeal = async (id?: string | number) => {
-    if (!id) return;
+  const handleDeleteDeal = async (id: number) => {
     if (!confirm('Are you sure you want to delete this listing?')) return;
 
     try {
@@ -238,9 +258,8 @@ export default function Home() {
     }
   };
 
-  // Open Edit Modal
   const openEditModal = (deal: Deal) => {
-    setEditingDealId(deal.id || null);
+    setEditingDealId(deal.id);
     setFormData({
       title: deal.title,
       business: deal.business,
@@ -270,24 +289,46 @@ export default function Home() {
     return { text: `${diffDays} days left`, color: 'bg-amber-500/20 text-amber-300 border border-amber-500/30' };
   };
 
-  // Filtering
-  const filteredDeals = deals.filter((deal) => {
-    const matchesCategory =
-      selectedCategory === 'All' ||
-      deal.category?.toLowerCase() === selectedCategory.toLowerCase();
+  // Filter & Sort Logic
+  const filteredDeals = deals
+    .filter((deal) => {
+      const matchesCategory =
+        selectedCategory === 'All' ||
+        deal.category?.toLowerCase() === selectedCategory.toLowerCase();
 
-    const matchesLocation =
-      selectedLocation === 'All' ||
-      deal.location?.toLowerCase() === selectedLocation.toLowerCase();
+      const matchesLocation =
+        selectedLocation === 'All' ||
+        deal.location?.toLowerCase() === selectedLocation.toLowerCase();
 
-    const matchesSearch =
-      deal.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      deal.business?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      deal.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      deal.location?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch =
+        deal.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        deal.business?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        deal.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        deal.location?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    return matchesCategory && matchesLocation && matchesSearch;
-  });
+      return matchesCategory && matchesLocation && matchesSearch;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'price_asc') {
+        return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
+      }
+      if (sortBy === 'price_desc') {
+        return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
+      }
+      if (sortBy === 'discount') {
+        const getPct = (d: Deal) => {
+          const num = parseInt(d.discount?.replace(/[^0-9]/g, '') || '0');
+          return isNaN(num) ? 0 : num;
+        };
+        return getPct(b) - getPct(a);
+      }
+      if (sortBy === 'expiry') {
+        if (!a.expires_at) return 1;
+        if (!b.expires_at) return -1;
+        return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
+      }
+      return 0; // Default latest order
+    });
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 antialiased font-sans">
@@ -342,33 +383,47 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Hero Section */}
-        <div className="text-center max-w-3xl mx-auto space-y-4 mb-8">
+        <div className="text-center max-w-3xl mx-auto space-y-3 mb-8">
           <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
-            {user ? `Merchant Active (${user.email})` : 'Live Local Marketplace'}
+            {user ? `Merchant Portal (${user.email})` : 'Live Local Marketplace'}
           </span>
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
             Discover Verified Local Discounts & Services
           </h1>
-          <p className="text-slate-400 text-base sm:lg">
+          <p className="text-slate-400 text-base sm:text-lg">
             Browse active promotions from top-rated neighborhood stores, studios, and venues.
           </p>
         </div>
 
-        {/* Search Bar */}
-        <div className="max-w-xl mx-auto mb-6">
-          <input
-            type="text"
-            placeholder="Search deals, stores, or areas..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-          />
+        {/* Search & Sort Row */}
+        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Search deals, stores, or areas..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-sm"
+            />
+          </div>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                Sort: {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Category & Location Filters */}
-        <div className="space-y-3 mb-10">
+        <div className="space-y-3 mb-8">
           {/* Categories */}
           <div className="flex flex-wrap items-center justify-center gap-2">
             {CATEGORIES.map((cat) => (
@@ -467,7 +522,7 @@ export default function Home() {
                         {deal.title}
                       </h3>
 
-                      {/* Dynamic Price Display */}
+                      {/* Pricing Display */}
                       {deal.deal_price && (
                         <div className="flex items-baseline gap-2 mb-2">
                           <span className="text-lg font-extrabold text-emerald-400">
@@ -481,9 +536,16 @@ export default function Home() {
                         </div>
                       )}
 
-                      <p className="text-sm text-slate-400 line-clamp-2">
+                      <p className="text-sm text-slate-400 line-clamp-2 mb-3">
                         {deal.description || 'Visit store to claim this offer.'}
                       </p>
+
+                      {/* Analytics Indicator (Visible to merchants) */}
+                      {user && (
+                        <div className="flex items-center gap-3 text-[11px] text-slate-500 border-t border-slate-800/60 pt-2 mb-1">
+                          <span>💬 {deal.inquiries_count || 0} Inquiries</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -492,6 +554,7 @@ export default function Home() {
                       href={whatsappUrl}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => trackInquiry(deal.id)}
                       className="block text-center w-full bg-slate-800/80 hover:bg-emerald-600 text-slate-200 hover:text-white font-semibold text-sm py-2.5 rounded-xl transition"
                     >
                       Claim via WhatsApp →
