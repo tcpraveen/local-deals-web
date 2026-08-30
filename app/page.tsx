@@ -6,6 +6,7 @@ import { User } from '@supabase/supabase-js';
 
 interface Deal {
   id: number;
+  user_id?: string;
   title: string;
   business: string;
   discount: string;
@@ -57,6 +58,7 @@ export default function Home() {
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+  const [showMyDealsOnly, setShowMyDealsOnly] = useState(false);
 
   // Live Map Modal State
   const [mapDeal, setMapDeal] = useState<Deal | null>(null);
@@ -88,12 +90,10 @@ export default function Home() {
     image: '',
     description: '',
     is_featured: false,
-    is_verified_merchant: true,
     store_address: '',
     google_maps_url: '',
     lat: 8.8053,
     lng: 78.145,
-    rating: 4.8,
   });
 
   useEffect(() => {
@@ -156,6 +156,16 @@ export default function Home() {
     }
   };
 
+  // WhatsApp Sanitizer
+  const sanitizeWhatsAppNumber = (phoneStr?: string) => {
+    if (!phoneStr) return '';
+    let clean = phoneStr.replace(/[^0-9]/g, '');
+    if (clean.length === 10) {
+      clean = `91${clean}`;
+    }
+    return clean;
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -181,9 +191,16 @@ export default function Home() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    setShowMyDealsOnly(false);
   };
 
+  // Image Upload with 2MB Limit Guard
   const handleImageUpload = async (file: File) => {
+    if (file.size > 2 * 1024 * 1024) {
+      alert('File size exceeds 2MB limit. Please upload a smaller image.');
+      return;
+    }
+
     try {
       setUploading(true);
       const fileExt = file.name.split('.').pop();
@@ -246,7 +263,7 @@ export default function Home() {
 
     try {
       setSubmitting(true);
-      const payload = {
+      const payload: any = {
         title: formData.title,
         business: formData.business,
         discount: formData.discount || 'Special Offer',
@@ -257,14 +274,13 @@ export default function Home() {
         phone: formData.phone || '',
         expires_at: formData.expires_at || null,
         is_featured: Boolean(formData.is_featured),
-        is_verified_merchant: Boolean(formData.is_verified_merchant),
         store_address: formData.store_address || '',
         google_maps_url: formData.google_maps_url || '',
         lat: formData.lat || 8.8053,
         lng: formData.lng || 78.145,
-        rating: formData.rating || 4.8,
         image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
         description: formData.description,
+        user_id: user.id,
       };
 
       if (editingDealId) {
@@ -293,12 +309,10 @@ export default function Home() {
         image: '',
         description: '',
         is_featured: false,
-        is_verified_merchant: true,
         store_address: '',
         google_maps_url: '',
         lat: 8.8053,
         lng: 78.145,
-        rating: 4.8,
       });
       setEditingDealId(null);
       setIsModalOpen(false);
@@ -335,12 +349,10 @@ export default function Home() {
       phone: deal.phone || '',
       expires_at: deal.expires_at || '',
       is_featured: deal.is_featured || false,
-      is_verified_merchant: deal.is_verified_merchant ?? true,
       store_address: deal.store_address || '',
       google_maps_url: deal.google_maps_url || '',
       lat: deal.lat || 8.8053,
       lng: deal.lng || 78.145,
-      rating: deal.rating || 4.8,
       image: deal.image,
       description: deal.description,
     });
@@ -365,6 +377,7 @@ export default function Home() {
     .filter((deal) => {
       if (showSavedOnly && !savedDealIds.includes(deal.id)) return false;
       if (showVerifiedOnly && !deal.is_verified_merchant) return false;
+      if (showMyDealsOnly && user && deal.user_id !== user.id) return false;
 
       const matchesCategory =
         selectedCategory === 'All' ||
@@ -402,7 +415,7 @@ export default function Home() {
       {/* Navbar */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/60 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <span className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
               🏷️ Local Deals Hub
             </span>
@@ -428,6 +441,19 @@ export default function Home() {
               <span>✓</span>
               <span>Verified Only</span>
             </button>
+            {user && (
+              <button
+                onClick={() => setShowMyDealsOnly(!showMyDealsOnly)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 ${
+                  showMyDealsOnly
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-500/20'
+                    : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+              >
+                <span>📦</span>
+                <span>My Listings</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -449,12 +475,10 @@ export default function Home() {
                       image: '',
                       description: '',
                       is_featured: false,
-                      is_verified_merchant: true,
                       store_address: '',
                       google_maps_url: '',
                       lat: 8.8053,
                       lng: 78.145,
-                      rating: 4.8,
                     });
                     setIsModalOpen(true);
                   }}
@@ -483,7 +507,7 @@ export default function Home() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
         {/* Featured Deals Spotlight Carousel */}
-        {featuredDeals.length > 0 && !showSavedOnly && (
+        {featuredDeals.length > 0 && !showSavedOnly && !showMyDealsOnly && (
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
               ✨ Featured Spotlight Offers
@@ -521,7 +545,7 @@ export default function Home() {
                     </div>
                   </div>
                   <a
-                    href={`https://wa.me/${deal.phone?.replace(/[^0-9]/g, '') || ''}?text=${encodeURIComponent(
+                    href={`https://wa.me/${sanitizeWhatsAppNumber(deal.phone)}?text=${encodeURIComponent(
                       `Hi! I saw your Featured Deal "${deal.title}" on Local Deals Hub.`
                     )}`}
                     target="_blank"
@@ -540,7 +564,7 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
-            {user ? `Merchant Portal (${user.email})` : '100% Genuine Local Offers'}
+            {user ? `Merchant Active: ${user.email}` : '100% Genuine Local Offers'}
           </span>
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
             Discover Verified Local Discounts & Services
@@ -617,7 +641,9 @@ export default function Home() {
         ) : filteredDeals.length === 0 ? (
           <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
             <p className="text-slate-400 text-base">
-              {showSavedOnly
+              {showMyDealsOnly
+                ? "You haven't posted any deals yet. Click '+ Post a Deal' above to publish your first offer!"
+                : showSavedOnly
                 ? 'No saved deals yet. Click the heart icon on any card to save it.'
                 : 'No deals found for this selection.'}
             </p>
@@ -626,12 +652,13 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDeals.map((deal) => {
               const expiryBadge = getExpiryBadge(deal.expires_at);
-              const cleanPhone = deal.phone?.replace(/[^0-9]/g, '') || '';
+              const cleanPhone = sanitizeWhatsAppNumber(deal.phone);
               const priceText = deal.deal_price ? ` at ₹${deal.deal_price}` : '';
               const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
                 `Hi! I saw your deal "${deal.title}"${priceText} on Local Deals Hub and would like to claim it.`
               )}`;
               const isSaved = savedDealIds.includes(deal.id);
+              const isOwner = user && deal.user_id === user.id;
 
               return (
                 <div
@@ -734,7 +761,7 @@ export default function Home() {
                       )}
 
                       {/* Merchant Analytics Indicator */}
-                      {user && (
+                      {isOwner && (
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 border-t border-slate-800/60 pt-2 mb-1">
                           <span>💬 {deal.inquiries_count || 0} Inquiries</span>
                         </div>
@@ -753,8 +780,8 @@ export default function Home() {
                       Claim via WhatsApp →
                     </a>
 
-                    {/* Merchant Controls */}
-                    {user && (
+                    {/* Owner-Only Controls */}
+                    {isOwner && (
                       <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
                         <button
                           onClick={() => openEditModal(deal)}
@@ -797,16 +824,14 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Embedded Interactive OSM Map */}
+            {/* Embedded OSM Map */}
             <div className="w-full h-72 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 relative">
               <iframe
                 title="Store Map"
                 width="100%"
                 height="100%"
-                frameBorder="0"
-                scrolling="no"
-                marginHeight={0}
-                marginWidth={0}
+                loading="lazy"
+                className="border-0 w-full h-full"
                 src={`https://www.openstreetmap.org/export/embed.html?bbox=${(mapDeal.lng || 78.145) - 0.01}%2C${(mapDeal.lat || 8.8053) - 0.01}%2C${(mapDeal.lng || 78.145) + 0.01}%2C${(mapDeal.lat || 8.8053) + 0.01}&layer=mapnik&marker=${mapDeal.lat || 8.8053}%2C${mapDeal.lng || 78.145}`}
               />
             </div>
@@ -1007,7 +1032,7 @@ export default function Home() {
                   <label className="block text-slate-400 mb-1">WhatsApp Number</label>
                   <input
                     type="tel"
-                    placeholder="e.g. 919876543210"
+                    placeholder="e.g. 9876543210"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
@@ -1024,7 +1049,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Physical Verification & Google Maps */}
+              {/* Physical Store Address & Maps URL */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Physical Store Address</label>
@@ -1040,7 +1065,7 @@ export default function Home() {
                   <label className="block text-slate-400 mb-1">Google Maps Link</label>
                   <input
                     type="url"
-                    placeholder="https://maps.app.goo.gl/..."
+                    placeholder="https://maps.google.com/?q=..."
                     value={formData.google_maps_url}
                     onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
@@ -1048,37 +1073,22 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Verified & Featured Checkboxes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div className="flex items-center gap-2 p-2.5 bg-[#080d16] border border-slate-800 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="is_verified_merchant"
-                    checked={Boolean(formData.is_verified_merchant)}
-                    onChange={(e) => setFormData({ ...formData, is_verified_merchant: e.target.checked })}
-                    className="rounded border-slate-700 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <label htmlFor="is_verified_merchant" className="text-xs text-slate-300">
-                    Badge as <span className="text-emerald-400 font-semibold">✓ Verified Store</span>
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 p-2.5 bg-[#080d16] border border-slate-800 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="is_featured"
-                    checked={Boolean(formData.is_featured)}
-                    onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
-                    className="rounded border-slate-700 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="is_featured" className="text-xs text-slate-300">
-                    Pin as <span className="text-amber-400 font-semibold">Featured Spotlight</span>
-                  </label>
-                </div>
+              {/* Spotlight Option */}
+              <div className="flex items-center gap-2 p-2.5 bg-[#080d16] border border-slate-800 rounded-lg">
+                <input
+                  type="checkbox"
+                  id="is_featured"
+                  checked={Boolean(formData.is_featured)}
+                  onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
+                  className="rounded border-slate-700 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="is_featured" className="text-xs text-slate-300">
+                  Pin as <span className="text-amber-400 font-semibold">Featured Spotlight Offer</span>
+                </label>
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Deal Image (Upload)</label>
+                <label className="block text-slate-400 mb-1">Deal Image (Max 2MB)</label>
                 <input
                   type="file"
                   accept="image/*"
