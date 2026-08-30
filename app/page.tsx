@@ -23,12 +23,22 @@ interface Deal {
   is_verified_merchant?: boolean;
   store_address?: string;
   google_maps_url?: string;
+  lat?: number;
+  lng?: number;
   rating?: number;
   review_count?: number;
 }
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
-const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
+const LOCATIONS = [
+  { name: 'All', lat: 8.8053, lng: 78.145 },
+  { name: 'Main Bazaar', lat: 8.81, lng: 78.14 },
+  { name: 'Anna Nagar', lat: 8.812, lng: 78.132 },
+  { name: 'Beach Road', lat: 8.818, lng: 78.147 },
+  { name: 'North Authoor', lat: 8.8053, lng: 78.145 },
+  { name: 'Bryant Nagar', lat: 8.799, lng: 78.135 },
+];
+
 const SORT_OPTIONS = [
   { label: 'Latest Added', value: 'latest' },
   { label: 'Price: Low to High', value: 'price_asc' },
@@ -47,6 +57,9 @@ export default function Home() {
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+
+  // Live Map Modal State
+  const [mapDeal, setMapDeal] = useState<Deal | null>(null);
 
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -78,10 +91,11 @@ export default function Home() {
     is_verified_merchant: true,
     store_address: '',
     google_maps_url: '',
+    lat: 8.8053,
+    lng: 78.145,
     rating: 4.8,
   });
 
-  // Track Auth & Fetch Deals
   useEffect(() => {
     fetchDeals();
 
@@ -120,7 +134,6 @@ export default function Home() {
     }
   };
 
-  // Toggle Bookmark
   const toggleSaveDeal = (id: number) => {
     let next: number[];
     if (savedDealIds.includes(id)) {
@@ -132,7 +145,6 @@ export default function Home() {
     localStorage.setItem('saved_deal_ids', JSON.stringify(next));
   };
 
-  // Inquiry Analytics
   const trackInquiry = async (dealId: number) => {
     try {
       await supabase.rpc('increment_deal_metric', { deal_id: dealId, metric_type: 'inquiry' });
@@ -144,7 +156,6 @@ export default function Home() {
     }
   };
 
-  // Auth Handlers
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -172,7 +183,6 @@ export default function Home() {
     await supabase.auth.signOut();
   };
 
-  // Image Upload Handler
   const handleImageUpload = async (file: File) => {
     try {
       setUploading(true);
@@ -198,7 +208,6 @@ export default function Home() {
     }
   };
 
-  // Price & Discount Calculator
   const handlePriceChange = (field: 'original_price' | 'deal_price', value: string) => {
     const updatedForm = { ...formData, [field]: value };
     const orig = parseFloat(String(field === 'original_price' ? value : formData.original_price));
@@ -212,7 +221,16 @@ export default function Home() {
     setFormData(updatedForm);
   };
 
-  // Create or Update Deal
+  const handleLocationChange = (locName: string) => {
+    const found = LOCATIONS.find((l) => l.name === locName);
+    setFormData((prev) => ({
+      ...prev,
+      location: locName,
+      lat: found?.lat || 8.8053,
+      lng: found?.lng || 78.145,
+    }));
+  };
+
   const handleSaveDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -242,6 +260,8 @@ export default function Home() {
         is_verified_merchant: Boolean(formData.is_verified_merchant),
         store_address: formData.store_address || '',
         google_maps_url: formData.google_maps_url || '',
+        lat: formData.lat || 8.8053,
+        lng: formData.lng || 78.145,
         rating: formData.rating || 4.8,
         image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
         description: formData.description,
@@ -276,6 +296,8 @@ export default function Home() {
         is_verified_merchant: true,
         store_address: '',
         google_maps_url: '',
+        lat: 8.8053,
+        lng: 78.145,
         rating: 4.8,
       });
       setEditingDealId(null);
@@ -288,7 +310,6 @@ export default function Home() {
     }
   };
 
-  // Delete Deal Handler
   const handleDeleteDeal = async (id: number) => {
     if (!confirm('Are you sure you want to delete this listing?')) return;
 
@@ -317,6 +338,8 @@ export default function Home() {
       is_verified_merchant: deal.is_verified_merchant ?? true,
       store_address: deal.store_address || '',
       google_maps_url: deal.google_maps_url || '',
+      lat: deal.lat || 8.8053,
+      lng: deal.lng || 78.145,
       rating: deal.rating || 4.8,
       image: deal.image,
       description: deal.description,
@@ -324,7 +347,6 @@ export default function Home() {
     setIsModalOpen(true);
   };
 
-  // Calculate Urgency Badge
   const getExpiryBadge = (dateStr?: string) => {
     if (!dateStr) return null;
     const expiry = new Date(dateStr);
@@ -337,7 +359,6 @@ export default function Home() {
     return { text: `${diffDays} days left`, color: 'bg-amber-500/20 text-amber-300 border border-amber-500/30' };
   };
 
-  // Filter & Sort Logic
   const featuredDeals = deals.filter((d) => d.is_featured);
 
   const filteredDeals = deals
@@ -362,17 +383,10 @@ export default function Home() {
       return matchesCategory && matchesLocation && matchesSearch;
     })
     .sort((a, b) => {
-      if (sortBy === 'price_asc') {
-        return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
-      }
-      if (sortBy === 'price_desc') {
-        return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
-      }
+      if (sortBy === 'price_asc') return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
+      if (sortBy === 'price_desc') return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
       if (sortBy === 'discount') {
-        const getPct = (d: Deal) => {
-          const num = parseInt(d.discount?.replace(/[^0-9]/g, '') || '0');
-          return isNaN(num) ? 0 : num;
-        };
+        const getPct = (d: Deal) => parseInt(d.discount?.replace(/[^0-9]/g, '') || '0') || 0;
         return getPct(b) - getPct(a);
       }
       if (sortBy === 'expiry') {
@@ -438,6 +452,8 @@ export default function Home() {
                       is_verified_merchant: true,
                       store_address: '',
                       google_maps_url: '',
+                      lat: 8.8053,
+                      lng: 78.145,
                       rating: 4.8,
                     });
                     setIsModalOpen(true);
@@ -530,7 +546,7 @@ export default function Home() {
             Discover Verified Local Discounts & Services
           </h1>
           <p className="text-slate-400 text-base sm:text-lg">
-            Shop directly from verified neighborhood businesses with authentic store warranties and billing.
+            Shop directly from verified neighborhood businesses with interactive map directions and store billing.
           </p>
         </div>
 
@@ -561,7 +577,6 @@ export default function Home() {
 
         {/* Category & Location Filters */}
         <div className="space-y-3">
-          {/* Categories */}
           <div className="flex flex-wrap items-center justify-center gap-2">
             {CATEGORIES.map((cat) => (
               <button
@@ -578,20 +593,19 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Locations */}
           <div className="flex flex-wrap items-center justify-center gap-2">
             <span className="text-xs text-slate-500 self-center mr-1">Area:</span>
             {LOCATIONS.map((loc) => (
               <button
-                key={loc}
-                onClick={() => setSelectedLocation(loc)}
+                key={loc.name}
+                onClick={() => setSelectedLocation(loc.name)}
                 className={`px-3 py-1 rounded-md text-xs transition ${
-                  selectedLocation === loc
+                  selectedLocation === loc.name
                     ? 'bg-slate-700 text-white font-medium border border-slate-600'
                     : 'bg-transparent text-slate-400 hover:text-slate-300'
                 }`}
               >
-                {loc}
+                {loc.name}
               </button>
             ))}
           </div>
@@ -675,7 +689,7 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* Store Reviews Rating Badge */}
+                      {/* Store Reviews Rating & Live Map Button */}
                       <div className="flex items-center justify-between text-xs mb-1">
                         <div className="flex items-center gap-1.5 text-amber-400">
                           <span>★ {deal.rating || 4.8}</span>
@@ -683,16 +697,12 @@ export default function Home() {
                             ({deal.review_count || 12} reviews)
                           </span>
                         </div>
-                        {deal.google_maps_url && (
-                          <a
-                            href={deal.google_maps_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[11px] text-blue-400 hover:underline"
-                          >
-                            🗺️ View Store Map
-                          </a>
-                        )}
+                        <button
+                          onClick={() => setMapDeal(deal)}
+                          className="text-[11px] font-medium text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
+                        >
+                          🗺️ Live Map
+                        </button>
                       </div>
 
                       <h3 className="text-lg font-bold text-white mb-1">
@@ -767,6 +777,59 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Live Map Modal */}
+      {mapDeal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  📍 {mapDeal.business}
+                </h2>
+                <p className="text-xs text-slate-400">{mapDeal.store_address || mapDeal.location || 'Local Business'}</p>
+              </div>
+              <button
+                onClick={() => setMapDeal(null)}
+                className="text-slate-400 hover:text-white text-xl p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Embedded Interactive OSM Map */}
+            <div className="w-full h-72 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 relative">
+              <iframe
+                title="Store Map"
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                scrolling="no"
+                marginHeight={0}
+                marginWidth={0}
+                src={`https://www.openstreetmap.org/export/embed.html?bbox=${(mapDeal.lng || 78.145) - 0.01}%2C${(mapDeal.lat || 8.8053) - 0.01}%2C${(mapDeal.lng || 78.145) + 0.01}%2C${(mapDeal.lat || 8.8053) + 0.01}&layer=mapnik&marker=${mapDeal.lat || 8.8053}%2C${mapDeal.lng || 78.145}`}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="text-xs text-slate-400">
+                Offer: <span className="text-emerald-400 font-bold">₹{mapDeal.deal_price || mapDeal.discount}</span>
+              </div>
+              <a
+                href={
+                  mapDeal.google_maps_url ||
+                  `https://www.google.com/maps/search/?api=1&query=${mapDeal.lat || 8.8053},${mapDeal.lng || 78.145}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition"
+              >
+                Get Google Maps Directions →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Auth Modal */}
       {isAuthModalOpen && (
@@ -927,12 +990,12 @@ export default function Home() {
                   <label className="block text-slate-400 mb-1">Area / Location</label>
                   <select
                     value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    onChange={(e) => handleLocationChange(e.target.value)}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   >
-                    {LOCATIONS.filter((l) => l !== 'All').map((loc) => (
-                      <option key={loc} value={loc}>
-                        {loc}
+                    {LOCATIONS.filter((l) => l.name !== 'All').map((loc) => (
+                      <option key={loc.name} value={loc.name}>
+                        {loc.name}
                       </option>
                     ))}
                   </select>
