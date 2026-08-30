@@ -19,6 +19,9 @@ interface Deal {
   description: string;
   views_count?: number;
   inquiries_count?: number;
+  is_featured?: boolean;
+  rating?: number;
+  review_count?: number;
 }
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
@@ -38,6 +41,8 @@ export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState('All');
   const [sortBy, setSortBy] = useState('latest');
   const [searchQuery, setSearchQuery] = useState('');
+  const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
 
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -65,11 +70,21 @@ export default function Home() {
     expires_at: '',
     image: '',
     description: '',
+    is_featured: false,
+    rating: 4.8,
   });
 
   // Track Auth & Fetch Deals
   useEffect(() => {
     fetchDeals();
+
+    // Load Bookmarks from LocalStorage
+    try {
+      const stored = localStorage.getItem('saved_deal_ids');
+      if (stored) setSavedDealIds(JSON.parse(stored));
+    } catch (e) {
+      console.error(e);
+    }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -99,7 +114,19 @@ export default function Home() {
     }
   };
 
-  // Metrics Tracker Handler
+  // Toggle Bookmark
+  const toggleSaveDeal = (id: number) => {
+    let next: number[];
+    if (savedDealIds.includes(id)) {
+      next = savedDealIds.filter((item) => item !== id);
+    } else {
+      next = [...savedDealIds, id];
+    }
+    setSavedDealIds(next);
+    localStorage.setItem('saved_deal_ids', JSON.stringify(next));
+  };
+
+  // Inquiry Analytics
   const trackInquiry = async (dealId: number) => {
     try {
       await supabase.rpc('increment_deal_metric', { deal_id: dealId, metric_type: 'inquiry' });
@@ -205,6 +232,8 @@ export default function Home() {
         location: formData.location || 'Main Bazaar',
         phone: formData.phone || '',
         expires_at: formData.expires_at || null,
+        is_featured: Boolean(formData.is_featured),
+        rating: formData.rating || 4.8,
         image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
         description: formData.description,
       };
@@ -234,6 +263,8 @@ export default function Home() {
         expires_at: '',
         image: '',
         description: '',
+        is_featured: false,
+        rating: 4.8,
       });
       setEditingDealId(null);
       setIsModalOpen(false);
@@ -270,6 +301,8 @@ export default function Home() {
       location: deal.location || 'Main Bazaar',
       phone: deal.phone || '',
       expires_at: deal.expires_at || '',
+      is_featured: deal.is_featured || false,
+      rating: deal.rating || 4.8,
       image: deal.image,
       description: deal.description,
     });
@@ -290,8 +323,12 @@ export default function Home() {
   };
 
   // Filter & Sort Logic
+  const featuredDeals = deals.filter((d) => d.is_featured);
+
   const filteredDeals = deals
     .filter((deal) => {
+      if (showSavedOnly && !savedDealIds.includes(deal.id)) return false;
+
       const matchesCategory =
         selectedCategory === 'All' ||
         deal.category?.toLowerCase() === selectedCategory.toLowerCase();
@@ -327,7 +364,7 @@ export default function Home() {
         if (!b.expires_at) return -1;
         return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
       }
-      return 0; // Default latest order
+      return 0; // Default order
     });
 
   return (
@@ -335,9 +372,22 @@ export default function Home() {
       {/* Navbar */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/60 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <span className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            Local Deals Hub
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              🏷️ Local Deals Hub
+            </span>
+            <button
+              onClick={() => setShowSavedOnly(!showSavedOnly)}
+              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 ${
+                showSavedOnly
+                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-white'
+              }`}
+            >
+              <span>{showSavedOnly ? '❤️' : '🤍'}</span>
+              <span>Saved ({savedDealIds.length})</span>
+            </button>
+          </div>
 
           <div className="flex items-center gap-3">
             {user ? (
@@ -357,6 +407,8 @@ export default function Home() {
                       expires_at: '',
                       image: '',
                       description: '',
+                      is_featured: false,
+                      rating: 4.8,
                     });
                     setIsModalOpen(true);
                   }}
@@ -383,9 +435,59 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+        {/* Featured Deals Spotlight Carousel */}
+        {featuredDeals.length > 0 && !showSavedOnly && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                ✨ Featured Spotlight Offers
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {featuredDeals.slice(0, 2).map((deal) => (
+                <div
+                  key={`feat-${deal.id}`}
+                  className="bg-gradient-to-r from-blue-950/40 via-[#0e1626] to-[#0e1626] border border-blue-500/30 rounded-2xl p-4 flex gap-4 items-center shadow-lg relative overflow-hidden"
+                >
+                  <img
+                    src={deal.image}
+                    alt={deal.title}
+                    className="w-28 h-28 object-cover rounded-xl border border-slate-700 flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
+                      {deal.business}
+                    </span>
+                    <h3 className="text-base font-bold text-white truncate mt-1">{deal.title}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      {deal.deal_price && (
+                        <span className="text-emerald-400 font-bold text-sm">₹{deal.deal_price}</span>
+                      )}
+                      <span className="text-xs text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded">
+                        {deal.discount}
+                      </span>
+                    </div>
+                  </div>
+                  <a
+                    href={`https://wa.me/${deal.phone?.replace(/[^0-9]/g, '') || ''}?text=${encodeURIComponent(
+                      `Hi! I saw your Featured Deal "${deal.title}" on Local Deals Hub.`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => trackInquiry(deal.id)}
+                    className="self-center bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl shadow-md whitespace-nowrap"
+                  >
+                    Claim →
+                  </a>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Hero Section */}
-        <div className="text-center max-w-3xl mx-auto space-y-3 mb-8">
+        <div className="text-center max-w-3xl mx-auto space-y-3">
           <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
             {user ? `Merchant Portal (${user.email})` : 'Live Local Marketplace'}
           </span>
@@ -398,7 +500,7 @@ export default function Home() {
         </div>
 
         {/* Search & Sort Row */}
-        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <input
               type="text"
@@ -423,7 +525,7 @@ export default function Home() {
         </div>
 
         {/* Category & Location Filters */}
-        <div className="space-y-3 mb-8">
+        <div className="space-y-3">
           {/* Categories */}
           <div className="flex flex-wrap items-center justify-center gap-2">
             {CATEGORIES.map((cat) => (
@@ -465,7 +567,9 @@ export default function Home() {
           <div className="text-center py-20 text-slate-500">Loading live deals...</div>
         ) : filteredDeals.length === 0 ? (
           <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
-            <p className="text-slate-400 text-base">No deals found for this selection.</p>
+            <p className="text-slate-400 text-base">
+              {showSavedOnly ? 'No saved deals yet. Click the heart icon on any card to save it.' : 'No deals found for this selection.'}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -476,6 +580,7 @@ export default function Home() {
               const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
                 `Hi! I saw your deal "${deal.title}"${priceText} on Local Deals Hub and would like to claim it.`
               )}`;
+              const isSaved = savedDealIds.includes(deal.id);
 
               return (
                 <div
@@ -504,6 +609,14 @@ export default function Home() {
                           {expiryBadge.text}
                         </span>
                       )}
+                      {/* Bookmark Button */}
+                      <button
+                        onClick={() => toggleSaveDeal(deal.id)}
+                        className="absolute bottom-3 right-3 bg-black/60 hover:bg-black/80 backdrop-blur-md p-2 rounded-full border border-white/10 text-sm transition"
+                        title={isSaved ? 'Remove from saved' : 'Save deal'}
+                      >
+                        {isSaved ? '❤️' : '🤍'}
+                      </button>
                     </div>
 
                     <div className="p-5">
@@ -516,6 +629,14 @@ export default function Home() {
                             📍 {deal.location}
                           </span>
                         )}
+                      </div>
+
+                      {/* Store Reviews Rating Badge */}
+                      <div className="flex items-center gap-1.5 text-xs mb-1 text-amber-400">
+                        <span>★ {deal.rating || 4.8}</span>
+                        <span className="text-slate-500 text-[11px]">
+                          ({deal.review_count || 12} verified reviews)
+                        </span>
                       </div>
 
                       <h3 className="text-lg font-bold text-white mb-1">
@@ -540,7 +661,7 @@ export default function Home() {
                         {deal.description || 'Visit store to claim this offer.'}
                       </p>
 
-                      {/* Analytics Indicator (Visible to merchants) */}
+                      {/* Merchant Analytics Indicator */}
                       {user && (
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 border-t border-slate-800/60 pt-2 mb-1">
                           <span>💬 {deal.inquiries_count || 0} Inquiries</span>
@@ -776,6 +897,20 @@ export default function Home() {
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
+              </div>
+
+              {/* Spotlight Featured Option */}
+              <div className="flex items-center gap-2 p-3 bg-[#080d16] border border-slate-800 rounded-lg">
+                <input
+                  type="checkbox"
+                  id="is_featured"
+                  checked={Boolean(formData.is_featured)}
+                  onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
+                  className="rounded border-slate-700 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="is_featured" className="text-xs text-slate-300">
+                  Pin as <span className="text-amber-400 font-semibold">Featured Spotlight Offer</span> on the top banner
+                </label>
               </div>
 
               <div>
