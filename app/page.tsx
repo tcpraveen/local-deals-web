@@ -20,6 +20,9 @@ interface Deal {
   views_count?: number;
   inquiries_count?: number;
   is_featured?: boolean;
+  is_verified_merchant?: boolean;
+  store_address?: string;
+  google_maps_url?: string;
   rating?: number;
   review_count?: number;
 }
@@ -43,6 +46,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
 
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -71,6 +75,9 @@ export default function Home() {
     image: '',
     description: '',
     is_featured: false,
+    is_verified_merchant: true,
+    store_address: '',
+    google_maps_url: '',
     rating: 4.8,
   });
 
@@ -78,7 +85,6 @@ export default function Home() {
   useEffect(() => {
     fetchDeals();
 
-    // Load Bookmarks from LocalStorage
     try {
       const stored = localStorage.getItem('saved_deal_ids');
       if (stored) setSavedDealIds(JSON.parse(stored));
@@ -233,6 +239,9 @@ export default function Home() {
         phone: formData.phone || '',
         expires_at: formData.expires_at || null,
         is_featured: Boolean(formData.is_featured),
+        is_verified_merchant: Boolean(formData.is_verified_merchant),
+        store_address: formData.store_address || '',
+        google_maps_url: formData.google_maps_url || '',
         rating: formData.rating || 4.8,
         image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
         description: formData.description,
@@ -264,6 +273,9 @@ export default function Home() {
         image: '',
         description: '',
         is_featured: false,
+        is_verified_merchant: true,
+        store_address: '',
+        google_maps_url: '',
         rating: 4.8,
       });
       setEditingDealId(null);
@@ -302,6 +314,9 @@ export default function Home() {
       phone: deal.phone || '',
       expires_at: deal.expires_at || '',
       is_featured: deal.is_featured || false,
+      is_verified_merchant: deal.is_verified_merchant ?? true,
+      store_address: deal.store_address || '',
+      google_maps_url: deal.google_maps_url || '',
       rating: deal.rating || 4.8,
       image: deal.image,
       description: deal.description,
@@ -328,6 +343,7 @@ export default function Home() {
   const filteredDeals = deals
     .filter((deal) => {
       if (showSavedOnly && !savedDealIds.includes(deal.id)) return false;
+      if (showVerifiedOnly && !deal.is_verified_merchant) return false;
 
       const matchesCategory =
         selectedCategory === 'All' ||
@@ -364,7 +380,7 @@ export default function Home() {
         if (!b.expires_at) return -1;
         return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
       }
-      return 0; // Default order
+      return 0;
     });
 
   return (
@@ -387,6 +403,17 @@ export default function Home() {
               <span>{showSavedOnly ? '❤️' : '🤍'}</span>
               <span>Saved ({savedDealIds.length})</span>
             </button>
+            <button
+              onClick={() => setShowVerifiedOnly(!showVerifiedOnly)}
+              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 ${
+                showVerifiedOnly
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-white'
+              }`}
+            >
+              <span>✓</span>
+              <span>Verified Only</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
@@ -408,6 +435,9 @@ export default function Home() {
                       image: '',
                       description: '',
                       is_featured: false,
+                      is_verified_merchant: true,
+                      store_address: '',
+                      google_maps_url: '',
                       rating: 4.8,
                     });
                     setIsModalOpen(true);
@@ -439,11 +469,9 @@ export default function Home() {
         {/* Featured Deals Spotlight Carousel */}
         {featuredDeals.length > 0 && !showSavedOnly && (
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                ✨ Featured Spotlight Offers
-              </h2>
-            </div>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
+              ✨ Featured Spotlight Offers
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {featuredDeals.slice(0, 2).map((deal) => (
                 <div
@@ -456,9 +484,16 @@ export default function Home() {
                     className="w-28 h-28 object-cover rounded-xl border border-slate-700 flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
-                      {deal.business}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
+                        {deal.business}
+                      </span>
+                      {deal.is_verified_merchant && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                          ✓ Verified
+                        </span>
+                      )}
+                    </div>
                     <h3 className="text-base font-bold text-white truncate mt-1">{deal.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
                       {deal.deal_price && (
@@ -489,13 +524,13 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
-            {user ? `Merchant Portal (${user.email})` : 'Live Local Marketplace'}
+            {user ? `Merchant Portal (${user.email})` : '100% Genuine Local Offers'}
           </span>
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
             Discover Verified Local Discounts & Services
           </h1>
           <p className="text-slate-400 text-base sm:text-lg">
-            Browse active promotions from top-rated neighborhood stores, studios, and venues.
+            Shop directly from verified neighborhood businesses with authentic store warranties and billing.
           </p>
         </div>
 
@@ -568,7 +603,9 @@ export default function Home() {
         ) : filteredDeals.length === 0 ? (
           <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
             <p className="text-slate-400 text-base">
-              {showSavedOnly ? 'No saved deals yet. Click the heart icon on any card to save it.' : 'No deals found for this selection.'}
+              {showSavedOnly
+                ? 'No saved deals yet. Click the heart icon on any card to save it.'
+                : 'No deals found for this selection.'}
             </p>
           </div>
         ) : (
@@ -621,9 +658,16 @@ export default function Home() {
 
                     <div className="p-5">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-semibold text-blue-400 uppercase tracking-wider">
-                          {deal.business}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-blue-400 uppercase tracking-wider">
+                            {deal.business}
+                          </span>
+                          {deal.is_verified_merchant && (
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              ✓ Verified Store
+                            </span>
+                          )}
+                        </div>
                         {deal.location && (
                           <span className="text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded text-[11px]">
                             📍 {deal.location}
@@ -632,11 +676,23 @@ export default function Home() {
                       </div>
 
                       {/* Store Reviews Rating Badge */}
-                      <div className="flex items-center gap-1.5 text-xs mb-1 text-amber-400">
-                        <span>★ {deal.rating || 4.8}</span>
-                        <span className="text-slate-500 text-[11px]">
-                          ({deal.review_count || 12} verified reviews)
-                        </span>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <div className="flex items-center gap-1.5 text-amber-400">
+                          <span>★ {deal.rating || 4.8}</span>
+                          <span className="text-slate-500 text-[11px]">
+                            ({deal.review_count || 12} reviews)
+                          </span>
+                        </div>
+                        {deal.google_maps_url && (
+                          <a
+                            href={deal.google_maps_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-blue-400 hover:underline"
+                          >
+                            🗺️ View Store Map
+                          </a>
+                        )}
                       </div>
 
                       <h3 className="text-lg font-bold text-white mb-1">
@@ -657,9 +713,15 @@ export default function Home() {
                         </div>
                       )}
 
-                      <p className="text-sm text-slate-400 line-clamp-2 mb-3">
+                      <p className="text-sm text-slate-400 line-clamp-2 mb-2">
                         {deal.description || 'Visit store to claim this offer.'}
                       </p>
+
+                      {deal.store_address && (
+                        <p className="text-[11px] text-slate-500 mb-2 truncate">
+                          🏬 {deal.store_address}
+                        </p>
+                      )}
 
                       {/* Merchant Analytics Indicator */}
                       {user && (
@@ -899,18 +961,57 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Spotlight Featured Option */}
-              <div className="flex items-center gap-2 p-3 bg-[#080d16] border border-slate-800 rounded-lg">
-                <input
-                  type="checkbox"
-                  id="is_featured"
-                  checked={Boolean(formData.is_featured)}
-                  onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
-                  className="rounded border-slate-700 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="is_featured" className="text-xs text-slate-300">
-                  Pin as <span className="text-amber-400 font-semibold">Featured Spotlight Offer</span> on the top banner
-                </label>
+              {/* Physical Verification & Google Maps */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Physical Store Address</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 14, Main Road, Thoothukudi"
+                    value={formData.store_address}
+                    onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Google Maps Link</label>
+                  <input
+                    type="url"
+                    placeholder="https://maps.app.goo.gl/..."
+                    value={formData.google_maps_url}
+                    onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Verified & Featured Checkboxes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="flex items-center gap-2 p-2.5 bg-[#080d16] border border-slate-800 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="is_verified_merchant"
+                    checked={Boolean(formData.is_verified_merchant)}
+                    onChange={(e) => setFormData({ ...formData, is_verified_merchant: e.target.checked })}
+                    className="rounded border-slate-700 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="is_verified_merchant" className="text-xs text-slate-300">
+                    Badge as <span className="text-emerald-400 font-semibold">✓ Verified Store</span>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2 p-2.5 bg-[#080d16] border border-slate-800 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="is_featured"
+                    checked={Boolean(formData.is_featured)}
+                    onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
+                    className="rounded border-slate-700 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="is_featured" className="text-xs text-slate-300">
+                    Pin as <span className="text-amber-400 font-semibold">Featured Spotlight</span>
+                  </label>
+                </div>
               </div>
 
               <div>
@@ -934,7 +1035,7 @@ export default function Home() {
                 <label className="block text-slate-400 mb-1">Description</label>
                 <textarea
                   rows={3}
-                  placeholder="Describe your offer, terms, and conditions..."
+                  placeholder="Describe your offer, warranty, and store billing terms..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
