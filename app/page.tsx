@@ -9,6 +9,8 @@ interface Deal {
   title: string;
   business: string;
   discount: string;
+  original_price?: number | string;
+  deal_price?: number | string;
   category: string;
   location?: string;
   phone?: string;
@@ -45,6 +47,8 @@ export default function Home() {
     title: '',
     business: '',
     discount: '',
+    original_price: '',
+    deal_price: '',
     category: 'Retail',
     location: 'Main Bazaar',
     phone: '',
@@ -139,6 +143,20 @@ export default function Home() {
     }
   };
 
+  // Price & Discount Calculator
+  const handlePriceChange = (field: 'original_price' | 'deal_price', value: string) => {
+    const updatedForm = { ...formData, [field]: value };
+    const orig = parseFloat(String(field === 'original_price' ? value : formData.original_price));
+    const deal = parseFloat(String(field === 'deal_price' ? value : formData.deal_price));
+
+    if (orig > 0 && deal > 0 && orig > deal) {
+      const discountPercent = Math.round(((orig - deal) / orig) * 100);
+      updatedForm.discount = `${discountPercent}% OFF`;
+    }
+
+    setFormData(updatedForm);
+  };
+
   // Create or Update Deal
   const handleSaveDeal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +177,8 @@ export default function Home() {
         title: formData.title,
         business: formData.business,
         discount: formData.discount || 'Special Offer',
+        original_price: formData.original_price ? Number(formData.original_price) : null,
+        deal_price: formData.deal_price ? Number(formData.deal_price) : null,
         category: formData.category,
         location: formData.location || 'Main Bazaar',
         phone: formData.phone || '',
@@ -180,11 +200,13 @@ export default function Home() {
         if (error) throw error;
       }
 
-      // Reset Modal State
+      // Reset Form State
       setFormData({
         title: '',
         business: '',
         discount: '',
+        original_price: '',
+        deal_price: '',
         category: 'Retail',
         location: 'Main Bazaar',
         phone: '',
@@ -223,6 +245,8 @@ export default function Home() {
       title: deal.title,
       business: deal.business,
       discount: deal.discount,
+      original_price: deal.original_price ?? '',
+      deal_price: deal.deal_price ?? '',
       category: deal.category,
       location: deal.location || 'Main Bazaar',
       phone: deal.phone || '',
@@ -284,6 +308,8 @@ export default function Home() {
                       title: '',
                       business: '',
                       discount: '',
+                      original_price: '',
+                      deal_price: '',
                       category: 'Retail',
                       location: 'Main Bazaar',
                       phone: '',
@@ -325,7 +351,7 @@ export default function Home() {
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
             Discover Verified Local Discounts & Services
           </h1>
-          <p className="text-slate-400 text-base sm:text-lg">
+          <p className="text-slate-400 text-base sm:lg">
             Browse active promotions from top-rated neighborhood stores, studios, and venues.
           </p>
         </div>
@@ -391,8 +417,9 @@ export default function Home() {
             {filteredDeals.map((deal) => {
               const expiryBadge = getExpiryBadge(deal.expires_at);
               const cleanPhone = deal.phone?.replace(/[^0-9]/g, '') || '';
+              const priceText = deal.deal_price ? ` at ₹${deal.deal_price}` : '';
               const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-                `Hi! I saw your deal "${deal.title}" on Local Deals Hub and would like to claim it.`
+                `Hi! I saw your deal "${deal.title}"${priceText} on Local Deals Hub and would like to claim it.`
               )}`;
 
               return (
@@ -407,9 +434,11 @@ export default function Home() {
                         alt={deal.title}
                         className="w-full h-full object-cover"
                       />
-                      <span className="absolute top-3 right-3 bg-red-500/90 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow">
-                        {deal.discount}
-                      </span>
+                      {deal.discount && (
+                        <span className="absolute top-3 right-3 bg-red-500/90 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow">
+                          {deal.discount}
+                        </span>
+                      )}
                       <span className="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10">
                         {deal.category}
                       </span>
@@ -433,9 +462,25 @@ export default function Home() {
                           </span>
                         )}
                       </div>
-                      <h3 className="text-lg font-bold text-white mb-2">
+
+                      <h3 className="text-lg font-bold text-white mb-1">
                         {deal.title}
                       </h3>
+
+                      {/* Dynamic Price Display */}
+                      {deal.deal_price && (
+                        <div className="flex items-baseline gap-2 mb-2">
+                          <span className="text-lg font-extrabold text-emerald-400">
+                            ₹{deal.deal_price}
+                          </span>
+                          {deal.original_price && Number(deal.original_price) > Number(deal.deal_price) && (
+                            <span className="text-xs text-slate-500 line-through">
+                              ₹{deal.original_price}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <p className="text-sm text-slate-400 line-clamp-2">
                         {deal.description || 'Visit store to claim this offer.'}
                       </p>
@@ -452,7 +497,7 @@ export default function Home() {
                       Claim via WhatsApp →
                     </a>
 
-                    {/* Merchant Management Controls */}
+                    {/* Merchant Controls */}
                     {user && (
                       <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
                         <button
@@ -582,12 +627,36 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Discount Tag</label>
+                  <label className="block text-slate-400 mb-1">Discount Tag (Auto/Custom)</label>
                   <input
                     type="text"
                     placeholder="e.g. 30% OFF"
                     value={formData.discount}
                     onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Original & Deal Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Original Price (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 1999"
+                    value={formData.original_price}
+                    onChange={(e) => handlePriceChange('original_price', e.target.value)}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Offer Price (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 1399"
+                    value={formData.deal_price}
+                    onChange={(e) => handlePriceChange('deal_price', e.target.value)}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -626,7 +695,7 @@ export default function Home() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">WhatsApp / Phone Number</label>
+                  <label className="block text-slate-400 mb-1">WhatsApp Number</label>
                   <input
                     type="tel"
                     placeholder="e.g. 919876543210"
