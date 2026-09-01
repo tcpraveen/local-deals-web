@@ -11,6 +11,7 @@ interface Deal {
   user_id?: string;
   title: string;
   business: string;
+  logo_url?: string;
   discount: string;
   original_price?: number | string;
   deal_price?: number | string;
@@ -56,12 +57,14 @@ export default function MerchantPortal() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDealId, setEditingDealId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [qrDeal, setQrDeal] = useState<Deal | null>(null);
 
   const [formData, setFormData] = useState<Partial<Deal>>({
     title: '',
     business: '',
+    logo_url: 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
     discount: '',
     original_price: '',
     deal_price: '',
@@ -138,14 +141,16 @@ export default function MerchantPortal() {
     await supabase.auth.signOut();
   };
 
-  const handleImageUpload = async (file: File) => {
+  const handleImageUpload = async (file: File, type: 'deal' | 'logo') => {
     if (file.size > 2 * 1024 * 1024) {
       alert('File size exceeds 2MB limit.');
       return;
     }
 
     try {
-      setUploading(true);
+      if (type === 'deal') setUploading(true);
+      else setLogoUploading(true);
+
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
       const filePath = `uploads/${fileName}`;
@@ -160,11 +165,16 @@ export default function MerchantPortal() {
         .from('deal-images')
         .getPublicUrl(filePath);
 
-      setFormData((prev) => ({ ...prev, image: data.publicUrl }));
+      if (type === 'deal') {
+        setFormData((prev) => ({ ...prev, image: data.publicUrl }));
+      } else {
+        setFormData((prev) => ({ ...prev, logo_url: data.publicUrl }));
+      }
     } catch (err: any) {
-      alert(`Image upload error: ${err.message}`);
+      alert(`Upload error: ${err.message}`);
     } finally {
-      setUploading(false);
+      if (type === 'deal') setUploading(false);
+      else setLogoUploading(false);
     }
   };
 
@@ -204,6 +214,7 @@ export default function MerchantPortal() {
       const payload: any = {
         title: formData.title,
         business: formData.business,
+        logo_url: formData.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
         discount: formData.discount || 'Special Offer',
         original_price: formData.original_price ? Number(formData.original_price) : null,
         deal_price: formData.deal_price ? Number(formData.deal_price) : null,
@@ -276,7 +287,7 @@ export default function MerchantPortal() {
               <span className="text-3xl">🏬</span>
               <h1 className="text-2xl font-bold text-white">Merchant Partner Sign In</h1>
               <p className="text-xs text-slate-400">
-                Publish promotions, generate QR counter-stands, and track WhatsApp leads.
+                Publish promotions, generate branded QR counter stands, and track WhatsApp leads.
               </p>
             </div>
 
@@ -343,10 +354,9 @@ export default function MerchantPortal() {
             </span>
             <Link
               href="/"
-              target="_blank"
               className="text-xs text-slate-400 hover:text-white bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700 transition"
             >
-              View Live Storefront ↗
+              ← View Live Storefront
             </Link>
           </div>
 
@@ -358,6 +368,7 @@ export default function MerchantPortal() {
                 setFormData({
                   title: '',
                   business: '',
+                  logo_url: 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
                   discount: '',
                   original_price: '',
                   deal_price: '',
@@ -428,8 +439,8 @@ export default function MerchantPortal() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-3">Offer Preview</th>
-                    <th className="py-3">Business</th>
+                    <th className="py-3">Brand & Title</th>
+                    <th className="py-3">Category</th>
                     <th className="py-3">Deal Price</th>
                     <th className="py-3">Location</th>
                     <th className="py-3">Inquiries</th>
@@ -441,13 +452,16 @@ export default function MerchantPortal() {
                     <tr key={deal.id} className="hover:bg-slate-800/30">
                       <td className="py-3 flex items-center gap-3">
                         <img
-                          src={deal.image}
-                          alt={deal.title}
-                          className="w-10 h-10 object-cover rounded-lg border border-slate-700 flex-shrink-0"
+                          src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
+                          alt={deal.business}
+                          className="w-8 h-8 rounded-full object-cover border border-slate-700 flex-shrink-0"
                         />
-                        <span className="font-semibold text-white truncate max-w-xs">{deal.title}</span>
+                        <div>
+                          <div className="font-bold text-white truncate max-w-xs">{deal.title}</div>
+                          <div className="text-[11px] text-slate-400">{deal.business}</div>
+                        </div>
                       </td>
-                      <td className="py-3 text-slate-300">{deal.business}</td>
+                      <td className="py-3 text-slate-300">{deal.category}</td>
                       <td className="py-3 font-bold text-emerald-400">
                         {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
                       </td>
@@ -501,7 +515,7 @@ export default function MerchantPortal() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Flat 30% Off Wedding Collections"
+                  placeholder="e.g. Flat 30% Off Men Cotton Shirts"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
@@ -510,11 +524,11 @@ export default function MerchantPortal() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Store / Business Name *</label>
+                  <label className="block text-slate-400 mb-1">Store / Brand Name *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Max Fashion"
+                    placeholder="e.g. Classic Men Trends"
                     value={formData.business}
                     onChange={(e) => setFormData({ ...formData, business: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
@@ -530,6 +544,21 @@ export default function MerchantPortal() {
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Store Brand Logo (Optional, Max 2MB)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImageUpload(file, 'logo');
+                  }}
+                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
+                />
+                {logoUploading && <p className="text-xs text-blue-400 mt-1">Uploading logo...</p>}
+                {formData.logo_url && !logoUploading && <p className="text-xs text-emerald-400 mt-1">✓ Logo linked</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -608,27 +637,15 @@ export default function MerchantPortal() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Physical Store Street Address</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 14, Main Bazaar, Authoor"
-                    value={formData.store_address}
-                    onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Google Maps Direct Link</label>
-                  <input
-                    type="url"
-                    placeholder="https://maps.google.com/..."
-                    value={formData.google_maps_url}
-                    onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Physical Store Street Address</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 42, Main Bazaar Road"
+                  value={formData.store_address}
+                  onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
+                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
 
               <div>
@@ -638,12 +655,12 @@ export default function MerchantPortal() {
                   accept="image/*"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file);
+                    if (file) handleImageUpload(file, 'deal');
                   }}
                   className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
                 />
-                {uploading && <p className="text-xs text-blue-400 mt-1">Uploading image...</p>}
-                {formData.image && !uploading && <p className="text-xs text-emerald-400 mt-1">Image ready!</p>}
+                {uploading && <p className="text-xs text-blue-400 mt-1">Uploading deal photo...</p>}
+                {formData.image && !uploading && <p className="text-xs text-emerald-400 mt-1">✓ Deal photo ready</p>}
               </div>
 
               <div>
@@ -667,7 +684,7 @@ export default function MerchantPortal() {
                 </button>
                 <button
                   type="submit"
-                  disabled={uploading || submitting}
+                  disabled={uploading || logoUploading || submitting}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg"
                 >
                   {submitting ? 'Saving...' : editingDealId ? 'Update Promotion' : 'Publish Offer'}
@@ -678,33 +695,50 @@ export default function MerchantPortal() {
         </div>
       )}
 
-      {/* QR Flyer Modal */}
+      {/* Branded Printable QR Flyer Modal */}
       {qrDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-xs font-semibold text-blue-400 uppercase">Printable Store Counter Stand</span>
+              <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
+                Official Counter Stand
+              </span>
               <button onClick={() => setQrDeal(null)} className="text-slate-400 hover:text-white text-lg">
                 ✕
               </button>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl text-slate-900 space-y-3 shadow-inner">
-              <div className="text-xs font-bold uppercase tracking-wider text-blue-600">{qrDeal.business}</div>
-              <h3 className="text-base font-black text-slate-900 leading-tight">{qrDeal.title}</h3>
-              <div className="inline-block bg-rose-100 text-rose-700 font-extrabold text-sm px-3 py-1 rounded-full">
+            <div className="bg-white p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
+              <div className="flex flex-col items-center gap-2">
+                <img
+                  src={qrDeal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
+                  alt={qrDeal.business}
+                  className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm"
+                />
+                <div className="text-xs font-black uppercase tracking-wider text-blue-700">
+                  {qrDeal.business}
+                </div>
+              </div>
+
+              <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                {qrDeal.title}
+              </h3>
+
+              <div className="inline-block bg-rose-50 text-rose-600 border border-rose-200 font-black text-sm px-3.5 py-1 rounded-full">
                 {qrDeal.discount}
               </div>
-              <div className="p-3 bg-white border-2 border-dashed border-slate-300 rounded-xl inline-block">
+
+              <div className="p-3 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl inline-block mt-1">
                 <QRCode
                   value={`https://wa.me/${qrDeal.phone?.replace(/[^0-9]/g, '') || ''}?text=${encodeURIComponent(
-                    `Hi! I scanned the QR flyer at ${qrDeal.business} for "${qrDeal.title}".`
+                    `Hi! I scanned the QR counter stand at ${qrDeal.business} for "${qrDeal.title}".`
                   )}`}
-                  size={160}
+                  size={150}
                 />
               </div>
-              <p className="text-[11px] font-semibold text-slate-500">
-                Scan with phone camera to claim immediately on WhatsApp!
+
+              <p className="text-[11px] font-medium text-slate-500">
+                Point camera to chat & claim directly on WhatsApp
               </p>
             </div>
 
