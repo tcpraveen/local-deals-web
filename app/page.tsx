@@ -1,22 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+
+interface Review {
+  id: number;
+  deal_id: number;
+  reviewer_name: string;
+  rating: number;
+  comment: string;
+  created_at: string;
+}
 
 interface Deal {
   id: number;
   title: string;
   business: string;
+  logo_url?: string;
   discount: string;
-  original_price?: number | string;
-  deal_price?: number | string;
+  original_price?: number;
+  deal_price?: number;
   category: string;
   location?: string;
   phone?: string;
   expires_at?: string;
   image: string;
   description: string;
+  views_count?: number;
   inquiries_count?: number;
   is_featured?: boolean;
   is_verified_merchant?: boolean;
@@ -28,63 +39,38 @@ interface Deal {
   review_count?: number;
 }
 
-interface Review {
-  id: number;
-  deal_id: number;
-  author_name: string;
-  rating: number;
-  comment: string;
-  created_at: string;
-}
-
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
-const LOCATIONS = [
-  { name: 'All', lat: 8.8053, lng: 78.145 },
-  { name: 'Main Bazaar', lat: 8.81, lng: 78.14 },
-  { name: 'Anna Nagar', lat: 8.812, lng: 78.132 },
-  { name: 'Beach Road', lat: 8.818, lng: 78.147 },
-  { name: 'North Authoor', lat: 8.8053, lng: 78.145 },
-  { name: 'Bryant Nagar', lat: 8.799, lng: 78.135 },
-];
+const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
 
-const SORT_OPTIONS = [
-  { label: 'Latest Added', value: 'latest' },
-  { label: 'Price: Low to High', value: 'price_asc' },
-  { label: 'Price: High to Low', value: 'price_desc' },
-  { label: 'Biggest Discount', value: 'discount' },
-  { label: 'Ending Soon', value: 'expiry' },
-];
-
-export default function ConsumerStorefront() {
+export default function Home() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLocation, setSelectedLocation] = useState('All');
   const [sortBy, setSortBy] = useState('latest');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
-  const [showSavedOnly, setShowSavedOnly] = useState(false);
-  const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
 
   // Modals
-  const [mapDeal, setMapDeal] = useState<Deal | null>(null);
-  const [reviewDeal, setReviewDeal] = useState<Deal | null>(null);
-
-  // Review System State
+  const [mapModalDeal, setMapModalDeal] = useState<Deal | null>(null);
+  const [reviewModalDeal, setReviewModalDeal] = useState<Deal | null>(null);
   const [reviewsList, setReviewsList] = useState<Review[]>([]);
-  const [reviewName, setReviewName] = useState('');
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewerName, setReviewerName] = useState('');
+  const [ratingInput, setRatingInput] = useState(5);
+  const [commentInput, setCommentInput] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     fetchDeals();
-
-    try {
-      const stored = localStorage.getItem('saved_deal_ids');
-      if (stored) setSavedDealIds(JSON.parse(stored));
-    } catch (e) {
-      console.error(e);
+    const saved = localStorage.getItem('local_deals_saved');
+    if (saved) {
+      try {
+        setSavedDealIds(JSON.parse(saved));
+      } catch (e) {
+        console.error(e);
+      }
     }
   }, []);
 
@@ -106,438 +92,340 @@ export default function ConsumerStorefront() {
   };
 
   const toggleSaveDeal = (id: number) => {
-    let next: number[];
-    if (savedDealIds.includes(id)) {
-      next = savedDealIds.filter((item) => item !== id);
-    } else {
-      next = [...savedDealIds, id];
-    }
-    setSavedDealIds(next);
-    localStorage.setItem('saved_deal_ids', JSON.stringify(next));
+    const updated = savedDealIds.includes(id)
+      ? savedDealIds.filter((item) => item !== id)
+      : [...savedDealIds, id];
+    setSavedDealIds(updated);
+    localStorage.setItem('local_deals_saved', JSON.stringify(updated));
   };
 
-  const trackInquiry = async (dealId: number) => {
+  const handleWhatsAppClaim = async (deal: Deal) => {
     try {
-      await supabase.rpc('increment_deal_metric', { deal_id: dealId, metric_type: 'inquiry' });
+      await supabase.rpc('increment_inquiries', { deal_id: deal.id });
     } catch (e) {
-      console.error('Inquiry tracker error', e);
+      // Continue even if telemetry fails
     }
+
+    const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
+    const phoneWithCountry = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`;
+    const text = encodeURIComponent(
+      `Hello ${deal.business}! I found your offer "${deal.title}" on Local Deals Hub. I'd like to claim this offer!`
+    );
+    window.open(`https://wa.me/${phoneWithCountry}?text=${text}`, '_blank');
   };
 
-  const sanitizeWhatsAppNumber = (phoneStr?: string) => {
-    if (!phoneStr) return '';
-    let clean = phoneStr.replace(/[^0-9]/g, '');
-    if (clean.length === 10) clean = `91${clean}`;
-    return clean;
-  };
+  const openReviews = async (deal: Deal) => {
+    setReviewModalDeal(deal);
+    setReviewsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('deal_reviews')
+        .select('*')
+        .eq('deal_id', deal.id)
+        .order('created_at', { ascending: false });
 
-  const openReviewsModal = async (deal: Deal) => {
-    setReviewDeal(deal);
-    const { data } = await supabase
-      .from('reviews')
-      .select('*')
-      .eq('deal_id', deal.id)
-      .order('created_at', { ascending: false });
-    setReviewsList(data || []);
+      if (error) throw error;
+      setReviewsList(data || []);
+    } catch (err: any) {
+      console.error('Error fetching reviews:', err.message);
+    } finally {
+      setReviewsLoading(false);
+    }
   };
 
   const handleAddReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reviewDeal || !reviewName.trim() || !reviewComment.trim()) return;
+    if (!reviewModalDeal || !reviewerName.trim()) return;
 
     try {
       setSubmittingReview(true);
       const newReview = {
-        deal_id: reviewDeal.id,
-        author_name: reviewName,
-        rating: reviewRating,
-        comment: reviewComment,
+        deal_id: reviewModalDeal.id,
+        reviewer_name: reviewerName.trim(),
+        rating: ratingInput,
+        comment: commentInput.trim(),
       };
 
-      const { error } = await supabase.from('reviews').insert([newReview]);
+      const { data, error } = await supabase
+        .from('deal_reviews')
+        .insert([newReview])
+        .select()
+        .single();
+
       if (error) throw error;
 
-      const { data: allReviews } = await supabase
-        .from('reviews')
-        .select('rating')
-        .eq('deal_id', reviewDeal.id);
+      setReviewsList([data, ...reviewsList]);
+      setReviewerName('');
+      setCommentInput('');
+      setRatingInput(5);
 
-      if (allReviews && allReviews.length > 0) {
-        const avg = (allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length).toFixed(1);
-        await supabase
-          .from('deals')
-          .update({ rating: parseFloat(avg), review_count: allReviews.length })
-          .eq('id', reviewDeal.id);
-      }
+      const allRatings = [data.rating, ...reviewsList.map((r) => r.rating)];
+      const avg = allRatings.reduce((a, b) => a + b, 0) / allRatings.length;
+      await supabase
+        .from('deals')
+        .update({ rating: parseFloat(avg.toFixed(1)), review_count: allRatings.length })
+        .eq('id', reviewModalDeal.id);
 
-      setReviewName('');
-      setReviewComment('');
-      await fetchDeals();
-      await openReviewsModal(reviewDeal);
+      setDeals((prev) =>
+        prev.map((d) =>
+          d.id === reviewModalDeal.id
+            ? { ...d, rating: parseFloat(avg.toFixed(1)), review_count: allRatings.length }
+            : d
+        )
+      );
     } catch (err: any) {
-      alert(`Error submitting feedback: ${err.message}`);
+      alert(`Error submitting review: ${err.message}`);
     } finally {
       setSubmittingReview(false);
     }
   };
 
-  const getExpiryBadge = (dateStr?: string) => {
-    if (!dateStr) return null;
-    const expiry = new Date(dateStr);
-    const now = new Date();
-    const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const filteredDeals = useMemo(() => {
+    return deals
+      .filter((deal) => {
+        const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
+        const matchesLocation = selectedLocation === 'All' || deal.location === selectedLocation;
+        const matchesVerified = !verifiedOnly || deal.is_verified_merchant;
+        const matchesSearch =
+          deal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          deal.business.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          deal.description.toLowerCase().includes(searchQuery.toLowerCase());
 
-    if (diffDays < 0) return { text: 'Expired', color: 'bg-zinc-700 text-zinc-300' };
-    if (diffDays === 0) return { text: 'Ends Today', color: 'bg-rose-600 text-white animate-pulse' };
-    if (diffDays === 1) return { text: 'Ends Tomorrow', color: 'bg-amber-600 text-white' };
-    return { text: `${diffDays} days left`, color: 'bg-amber-500/20 text-amber-300 border border-amber-500/30' };
-  };
-
-  const featuredDeals = deals.filter((d) => d.is_featured);
-
-  const filteredDeals = deals
-    .filter((deal) => {
-      if (showSavedOnly && !savedDealIds.includes(deal.id)) return false;
-      if (showVerifiedOnly && !deal.is_verified_merchant) return false;
-
-      const matchesCategory =
-        selectedCategory === 'All' ||
-        deal.category?.toLowerCase() === selectedCategory.toLowerCase();
-
-      const matchesLocation =
-        selectedLocation === 'All' ||
-        deal.location?.toLowerCase() === selectedLocation.toLowerCase();
-
-      const matchesSearch =
-        deal.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.business?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.location?.toLowerCase().includes(searchQuery.toLowerCase());
-
-      return matchesCategory && matchesLocation && matchesSearch;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'price_asc') return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
-      if (sortBy === 'price_desc') return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
-      if (sortBy === 'discount') {
-        const getPct = (d: Deal) => parseInt(d.discount?.replace(/[^0-9]/g, '') || '0') || 0;
-        return getPct(b) - getPct(a);
-      }
-      if (sortBy === 'expiry') {
-        if (!a.expires_at) return 1;
-        if (!b.expires_at) return -1;
-        return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
-      }
-      return 0;
-    });
+        return matchesCategory && matchesLocation && matchesVerified && matchesSearch;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'price_low') return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
+        if (sortBy === 'price_high') return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
+        if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
+        return 0; // Default latest
+      });
+  }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, sortBy]);
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 antialiased font-sans flex flex-col justify-between">
-      {/* Shopper Navbar */}
-      <header className="border-b border-slate-800/80 bg-[#0a101d]/70 backdrop-blur-md sticky top-0 z-40">
+    <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
+      {/* Top Navigation */}
+      <header className="border-b border-slate-800/80 bg-[#0a101d]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              🏷️ Local Deals Hub
-            </span>
-            <button
-              onClick={() => setShowSavedOnly(!showSavedOnly)}
-              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 ${
-                showSavedOnly
-                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                  : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-white'
-              }`}
-            >
-              <span>{showSavedOnly ? '❤️' : '🤍'}</span>
-              <span>Saved ({savedDealIds.length})</span>
-            </button>
-            <button
-              onClick={() => setShowVerifiedOnly(!showVerifiedOnly)}
-              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 ${
-                showVerifiedOnly
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                  : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-white'
-              }`}
-            >
-              <span>✓</span>
-              <span>Verified Only</span>
-            </button>
+            <span className="text-xl">🏷️</span>
+            <span className="text-base sm:text-lg font-bold tracking-tight text-white">Local Deals Hub</span>
           </div>
 
-          <Link
-            href="/merchant"
-            className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm px-4 py-2 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center gap-1.5"
-          >
-            <span>🏬</span>
-            <span>Merchant Portal →</span>
-          </Link>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => {
+                if (savedDealIds.length > 0) {
+                  setDeals(deals.filter((d) => savedDealIds.includes(d.id)));
+                } else {
+                  fetchDeals();
+                }
+              }}
+              className="text-xs bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700/60 transition"
+            >
+              ❤️ Saved ({savedDealIds.length})
+            </button>
+            <button
+              onClick={() => setVerifiedOnly(!verifiedOnly)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition ${
+                verifiedOnly
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                  : 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+              }`}
+            >
+              ✓ Verified Only
+            </button>
+            <Link
+              href="/merchant"
+              className="text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-xl shadow-lg shadow-blue-500/20 transition"
+            >
+              🏬 Merchant Portal →
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10 flex-1 w-full">
-        {/* Featured Spotlight Carousel */}
-        {featuredDeals.length > 0 && !showSavedOnly && (
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-              ✨ Featured Spotlight Offers
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {featuredDeals.slice(0, 2).map((deal) => (
-                <div
-                  key={`feat-${deal.id}`}
-                  className="bg-gradient-to-r from-blue-950/40 via-[#0e1626] to-[#0e1626] border border-blue-500/30 rounded-2xl p-4 flex gap-4 items-center shadow-lg relative overflow-hidden"
-                >
-                  <img
-                    src={deal.image}
-                    alt={deal.title}
-                    className="w-28 h-28 object-cover rounded-xl border border-slate-700 flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
-                        {deal.business}
-                      </span>
-                      {deal.is_verified_merchant && (
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
-                          ✓ Verified
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-base font-bold text-white truncate mt-1">{deal.title}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      {deal.deal_price && (
-                        <span className="text-emerald-400 font-bold text-sm">₹{deal.deal_price}</span>
-                      )}
-                      <span className="text-xs text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded">
-                        {deal.discount}
-                      </span>
-                    </div>
-                  </div>
-                  <a
-                    href={`https://wa.me/${sanitizeWhatsAppNumber(deal.phone)}?text=${encodeURIComponent(
-                      `Hi! I saw your Featured Deal "${deal.title}" on Local Deals Hub.`
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackInquiry(deal.id)}
-                    className="self-center bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl shadow-md whitespace-nowrap"
-                  >
-                    Claim →
-                  </a>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Hero Section */}
-        <div className="text-center max-w-3xl mx-auto space-y-3">
-          <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 rounded-full border border-blue-500/20">
-            100% Genuine Local Offers
-          </span>
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
-            Discover Verified Local Discounts & Services
-          </h1>
-          <p className="text-slate-400 text-base sm:text-lg">
-            Shop directly from verified neighborhood businesses with interactive map directions and store billing.
-          </p>
+      {/* Hero Banner */}
+      <div className="py-10 text-center max-w-3xl mx-auto px-4 space-y-3">
+        <div className="inline-block text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
+          100% Genuine Local Offers
         </div>
+        <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+          Discover Verified Local Discounts & Services
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+          Shop directly from verified neighborhood businesses with interactive map directions and store billing.
+        </p>
 
-        {/* Search & Sort Row */}
-        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Search deals, stores, or areas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-sm"
-            />
-          </div>
-
+        {/* Search & Sort Bar */}
+        <div className="flex flex-col sm:flex-row gap-2 pt-4 max-w-xl mx-auto">
+          <input
+            type="text"
+            placeholder="Search deals, stores, or areas..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          />
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
           >
-            {SORT_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                Sort: {opt.label}
-              </option>
-            ))}
+            <option value="latest">Sort: Latest Added</option>
+            <option value="rating">Sort: Top Rated</option>
+            <option value="price_low">Sort: Price (Low to High)</option>
+            <option value="price_high">Sort: Price (High to Low)</option>
           </select>
         </div>
 
         {/* Category & Location Filters */}
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                  selectedCategory === cat
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                    : 'bg-[#0f172a] text-slate-400 hover:text-white border border-slate-800/80 hover:border-slate-700'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="text-xs text-slate-500 self-center mr-1">Area:</span>
-            {LOCATIONS.map((loc) => (
-              <button
-                key={loc.name}
-                onClick={() => setSelectedLocation(loc.name)}
-                className={`px-3 py-1 rounded-md text-xs transition ${
-                  selectedLocation === loc.name
-                    ? 'bg-slate-700 text-white font-medium border border-slate-600'
-                    : 'bg-transparent text-slate-400 hover:text-slate-300'
-                }`}
-              >
-                {loc.name}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`text-xs px-3 py-1 rounded-lg font-medium transition ${
+                selectedCategory === cat
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'bg-slate-800/60 text-slate-400 hover:text-white'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
 
-        {/* Listings Grid */}
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs text-slate-400">
+          <span>Area:</span>
+          {LOCATIONS.map((loc) => (
+            <button
+              key={loc}
+              onClick={() => setSelectedLocation(loc)}
+              className={`px-2.5 py-0.5 rounded transition ${
+                selectedLocation === loc
+                  ? 'bg-slate-700 text-white font-semibold'
+                  : 'hover:text-slate-200'
+              }`}
+            >
+              {loc}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Deals Feed */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         {loading ? (
-          <div className="text-center py-20 text-slate-500">Loading live deals...</div>
+          <div className="py-20 text-center text-slate-500 text-sm">Loading verified local deals...</div>
         ) : filteredDeals.length === 0 ? (
-          <div className="text-center py-20 bg-[#0a101d] rounded-2xl border border-slate-800/60 p-8">
-            <p className="text-slate-400 text-base">
-              {showSavedOnly
-                ? 'No saved deals yet. Click the heart icon on any card to save it.'
-                : 'No deals found for this selection.'}
-            </p>
+          <div className="py-16 text-center space-y-3">
+            <p className="text-slate-400 text-sm">No promotions found matching your selected filters.</p>
+            <button
+              onClick={() => {
+                setSelectedCategory('All');
+                setSelectedLocation('All');
+                setSearchQuery('');
+                setVerifiedOnly(false);
+                fetchDeals();
+              }}
+              className="text-xs bg-slate-800 text-blue-400 px-4 py-2 rounded-lg border border-slate-700"
+            >
+              Reset Filters
+            </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDeals.map((deal) => {
-              const expiryBadge = getExpiryBadge(deal.expires_at);
-              const cleanPhone = sanitizeWhatsAppNumber(deal.phone);
-              const priceText = deal.deal_price ? ` at ₹${deal.deal_price}` : '';
-              const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-                `Hi! I saw your deal "${deal.title}"${priceText} on Local Deals Hub and would like to claim it.`
-              )}`;
               const isSaved = savedDealIds.includes(deal.id);
-
               return (
                 <div
                   key={deal.id}
-                  className="bg-[#0e1626] border border-slate-800 rounded-2xl overflow-hidden shadow-xl hover:border-slate-700 transition flex flex-col justify-between"
+                  className="bg-[#0e1626] border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between hover:border-slate-700 transition"
                 >
-                  <div>
-                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
-                      <img
-                        src={deal.image}
-                        alt={deal.title}
-                        className="w-full h-full object-cover"
-                      />
-                      {deal.discount && (
-                        <span className="absolute top-3 right-3 bg-red-500/90 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow">
-                          {deal.discount}
-                        </span>
-                      )}
-                      <span className="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10">
-                        {deal.category}
-                      </span>
-                      {expiryBadge && (
-                        <span
-                          className={`absolute bottom-3 left-3 text-xs px-2.5 py-0.5 rounded-full font-semibold backdrop-blur-md ${expiryBadge.color}`}
-                        >
-                          {expiryBadge.text}
-                        </span>
-                      )}
-                      <button
-                        onClick={() => toggleSaveDeal(deal.id)}
-                        className="absolute bottom-3 right-3 bg-black/60 hover:bg-black/80 backdrop-blur-md p-2 rounded-full border border-white/10 text-sm transition"
-                        title={isSaved ? 'Remove from saved' : 'Save deal'}
-                      >
-                        {isSaved ? '❤️' : '🤍'}
-                      </button>
-                    </div>
+                  {/* Top Image Box */}
+                  <div className="relative h-48 w-full bg-slate-900">
+                    <img src={deal.image} alt={deal.title} className="w-full h-full object-cover" />
+                    <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
+                      {deal.category}
+                    </span>
+                    <span className="absolute top-3 right-3 bg-rose-600 text-white text-[11px] font-extrabold px-2.5 py-1 rounded-md shadow-md">
+                      {deal.discount}
+                    </span>
+                    <button
+                      onClick={() => toggleSaveDeal(deal.id)}
+                      className="absolute bottom-3 right-3 w-8 h-8 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white text-sm hover:scale-110 transition"
+                    >
+                      {isSaved ? '❤️' : '🤍'}
+                    </button>
+                  </div>
 
-                    <div className="p-5">
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-semibold text-blue-400 uppercase tracking-wider">
+                  {/* Card Content */}
+                  <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      {/* Store Logo & Verified Status */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
+                            alt={deal.business}
+                            className="w-6 h-6 rounded-full object-cover border border-slate-700"
+                          />
+                          <span className="font-bold text-xs uppercase tracking-wide text-slate-200">
                             {deal.business}
                           </span>
                           {deal.is_verified_merchant && (
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
-                              ✓ Verified Store
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold">
+                              ✓ Verified
                             </span>
                           )}
                         </div>
-                        {deal.location && (
-                          <span className="text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded text-[11px]">
-                            📍 {deal.location}
-                          </span>
-                        )}
-                      </div>
 
-                      <div className="flex items-center justify-between text-xs mb-1">
                         <button
-                          onClick={() => openReviewsModal(deal)}
-                          className="flex items-center gap-1 text-amber-400 hover:underline"
-                        >
-                          <span>★ {deal.rating || 4.8}</span>
-                          <span className="text-slate-500 text-[11px]">
-                            ({deal.review_count || 0} reviews)
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => setMapDeal(deal)}
-                          className="text-[11px] font-medium text-blue-400 hover:text-blue-300 flex items-center gap-0.5"
+                          onClick={() => setMapModalDeal(deal)}
+                          className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20"
                         >
                           🗺️ Live Map
                         </button>
                       </div>
 
-                      <h3 className="text-lg font-bold text-white mb-1">
-                        {deal.title}
-                      </h3>
+                      {/* Ratings */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openReviews(deal)}
+                          className="text-xs text-amber-400 font-semibold hover:underline flex items-center gap-1"
+                        >
+                          ⭐ {deal.rating || 5.0}{' '}
+                          <span className="text-slate-500 font-normal">({deal.review_count || 12} reviews)</span>
+                        </button>
+                      </div>
 
-                      {deal.deal_price && (
-                        <div className="flex items-baseline gap-2 mb-2">
-                          <span className="text-lg font-extrabold text-emerald-400">
-                            ₹{deal.deal_price}
-                          </span>
-                          {deal.original_price && Number(deal.original_price) > Number(deal.deal_price) && (
-                            <span className="text-xs text-slate-500 line-through">
-                              ₹{deal.original_price}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      {/* Title & Description */}
+                      <h3 className="text-sm sm:text-base font-bold text-white leading-snug">{deal.title}</h3>
+                      <p className="text-xs text-slate-400 line-clamp-2">{deal.description}</p>
+                    </div>
 
-                      <p className="text-sm text-slate-400 line-clamp-2 mb-2">
-                        {deal.description || 'Visit store to claim this offer.'}
-                      </p>
+                    {/* Price & Location */}
+                    <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-lg font-black text-emerald-400">
+                          {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
+                        </span>
+                        {deal.original_price && (
+                          <span className="text-xs text-slate-500 line-through">₹{deal.original_price}</span>
+                        )}
+                      </div>
 
                       {deal.store_address && (
-                        <p className="text-[11px] text-slate-500 mb-2 truncate">
-                          🏬 {deal.store_address}
-                        </p>
+                        <div className="text-[11px] text-slate-400 truncate">🏬 {deal.store_address}</div>
                       )}
-                    </div>
-                  </div>
 
-                  <div className="p-5 pt-0">
-                    <a
-                      href={whatsappUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => trackInquiry(deal.id)}
-                      className="block text-center w-full bg-slate-800/80 hover:bg-emerald-600 text-slate-200 hover:text-white font-semibold text-sm py-2.5 rounded-xl transition"
-                    >
-                      Claim via WhatsApp →
-                    </a>
+                      {/* WhatsApp CTA */}
+                      <button
+                        onClick={() => handleWhatsAppClaim(deal)}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                      >
+                        Claim via WhatsApp →
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -546,83 +434,120 @@ export default function ConsumerStorefront() {
         )}
       </main>
 
-      {/* Reviews Modal */}
-      {reviewDeal && (
+      {/* Map Modal */}
+      {mapModalDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-base font-bold text-white">
-                  Customer Reviews — {reviewDeal.business}
-                </h2>
-                <p className="text-xs text-slate-400">{reviewDeal.title}</p>
-              </div>
-              <button onClick={() => setReviewDeal(null)} className="text-slate-400 hover:text-white text-xl">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                📍 {mapModalDeal.business} Location
+              </h3>
+              <button onClick={() => setMapModalDeal(null)} className="text-slate-400 hover:text-white">
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleAddReview} className="space-y-3 bg-[#080d16] p-4 rounded-xl border border-slate-800">
-              <h3 className="text-xs font-semibold text-slate-300">Write a Verified Review</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  required
-                  placeholder="Your Name"
-                  value={reviewName}
-                  onChange={(e) => setReviewName(e.target.value)}
-                  className="bg-[#0e1626] border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                />
+            <div className="h-56 w-full rounded-xl overflow-hidden border border-slate-800">
+              <iframe
+                title="Store Map"
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                scrolling="no"
+                src={`https://www.openstreetmap.org/export/embed.html?bbox=${(mapModalDeal.lng || 78.14) - 0.01}%2C${
+                  (mapModalDeal.lat || 8.81) - 0.01
+                }%2C${(mapModalDeal.lng || 78.14) + 0.01}%2C${
+                  (mapModalDeal.lat || 8.81) + 0.01
+                }&layer=mapnik&marker=${mapModalDeal.lat || 8.81}%2C${mapModalDeal.lng || 78.14}`}
+              />
+            </div>
+
+            <p className="text-xs text-slate-400">
+              {mapModalDeal.store_address || `${mapModalDeal.location}, Tamil Nadu`}
+            </p>
+
+            <a
+              href={
+                mapModalDeal.google_maps_url ||
+                `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  `${mapModalDeal.business} ${mapModalDeal.location || ''}`
+                )}`
+              }
+              target="_blank"
+              rel="noreferrer"
+              className="block text-center py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl"
+            >
+              Open Route in Google Maps ↗
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {reviewModalDeal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 className="text-sm font-bold text-white">⭐ Customer Reviews</h3>
+              <button onClick={() => setReviewModalDeal(null)} className="text-slate-400 hover:text-white">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddReview} className="space-y-3 bg-[#080d16] p-3.5 rounded-xl border border-slate-800">
+              <div className="text-xs font-semibold text-white">Add Your Verified Review</div>
+              <input
+                type="text"
+                required
+                placeholder="Your Name"
+                value={reviewerName}
+                onChange={(e) => setReviewerName(e.target.value)}
+                className="w-full bg-[#0e1626] border border-slate-800 rounded-lg p-2 text-xs text-white"
+              />
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400">Rating:</span>
                 <select
-                  value={reviewRating}
-                  onChange={(e) => setReviewRating(Number(e.target.value))}
-                  className="bg-[#0e1626] border border-slate-800 rounded-lg p-2 text-xs text-amber-400 focus:outline-none focus:border-blue-500"
+                  value={ratingInput}
+                  onChange={(e) => setRatingInput(Number(e.target.value))}
+                  className="bg-[#0e1626] border border-slate-800 rounded-lg p-1 text-xs text-amber-400"
                 >
-                  <option value={5}>★★★★★ (5 Stars)</option>
-                  <option value={4}>★★★★☆ (4 Stars)</option>
-                  <option value={3}>★★★☆☆ (3 Stars)</option>
-                  <option value={2}>★★☆☆☆ (2 Stars)</option>
-                  <option value={1}>★☆☆☆☆ (1 Star)</option>
+                  <option value={5}>⭐⭐⭐⭐⭐ (5/5)</option>
+                  <option value={4}>⭐⭐⭐⭐ (4/5)</option>
+                  <option value={3}>⭐⭐⭐ (3/5)</option>
+                  <option value={2}>⭐⭐ (2/5)</option>
+                  <option value={1}>⭐ (1/5)</option>
                 </select>
               </div>
-
               <textarea
                 rows={2}
-                required
-                placeholder="Share your shopping experience..."
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                className="w-full bg-[#0e1626] border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                placeholder="Share your experience with this offer/store..."
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+                className="w-full bg-[#0e1626] border border-slate-800 rounded-lg p-2 text-xs text-white"
               />
-
               <button
                 type="submit"
                 disabled={submittingReview}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium text-xs rounded-lg transition"
+                className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg"
               >
-                {submittingReview ? 'Submitting...' : 'Post Customer Review'}
+                {submittingReview ? 'Submitting...' : 'Post Review'}
               </button>
             </form>
 
-            <div className="space-y-2 pt-2">
-              <h4 className="text-xs font-semibold text-slate-400">
-                Verified Feedback ({reviewsList.length})
-              </h4>
-              {reviewsList.length === 0 ? (
-                <p className="text-xs text-slate-500 italic py-3 text-center">
-                  No reviews yet. Be the first to leave feedback!
-                </p>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-400">All Reviews ({reviewsList.length})</div>
+              {reviewsLoading ? (
+                <div className="text-xs text-slate-500 py-4 text-center">Loading reviews...</div>
+              ) : reviewsList.length === 0 ? (
+                <div className="text-xs text-slate-500 py-4 text-center">No reviews yet. Be the first to review!</div>
               ) : (
-                reviewsList.map((r) => (
-                  <div key={r.id} className="p-3 bg-[#080d16] border border-slate-800 rounded-xl space-y-1">
+                reviewsList.map((rev) => (
+                  <div key={rev.id} className="p-3 bg-[#080d16] border border-slate-800/80 rounded-xl space-y-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-200">{r.author_name}</span>
-                      <span className="text-amber-400">{'★'.repeat(r.rating)}</span>
+                      <span className="font-semibold text-white">{rev.reviewer_name}</span>
+                      <span className="text-amber-400">{'⭐'.repeat(rev.rating)}</span>
                     </div>
-                    <p className="text-xs text-slate-400">{r.comment}</p>
-                    <span className="text-[10px] text-slate-600 block">
-                      {new Date(r.created_at).toLocaleDateString()}
-                    </span>
+                    {rev.comment && <p className="text-[11px] text-slate-300">{rev.comment}</p>}
                   </div>
                 ))
               )}
@@ -630,64 +555,6 @@ export default function ConsumerStorefront() {
           </div>
         </div>
       )}
-
-      {/* Map Modal */}
-      {mapDeal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  📍 {mapDeal.business}
-                </h2>
-                <p className="text-xs text-slate-400">{mapDeal.store_address || mapDeal.location || 'Local Business'}</p>
-              </div>
-              <button onClick={() => setMapDeal(null)} className="text-slate-400 hover:text-white text-xl p-1">
-                ✕
-              </button>
-            </div>
-
-            <div className="w-full h-72 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 relative">
-              <iframe
-                title="Store Map"
-                width="100%"
-                height="100%"
-                loading="lazy"
-                className="border-0 w-full h-full"
-                src={`https://www.openstreetmap.org/export/embed.html?bbox=${(mapDeal.lng || 78.145) - 0.01}%2C${(mapDeal.lat || 8.8053) - 0.01}%2C${(mapDeal.lng || 78.145) + 0.01}%2C${(mapDeal.lat || 8.8053) + 0.01}&layer=mapnik&marker=${mapDeal.lat || 8.8053}%2C${mapDeal.lng || 78.145}`}
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <div className="text-xs text-slate-400">
-                Offer: <span className="text-emerald-400 font-bold">₹{mapDeal.deal_price || mapDeal.discount}</span>
-              </div>
-              <a
-                href={
-                  mapDeal.google_maps_url ||
-                  `https://www.google.com/maps/search/?api=1&query=${mapDeal.lat || 8.8053},${mapDeal.lng || 78.145}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition"
-              >
-                Get Google Maps Directions →
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-[#060910] py-8 text-center text-xs text-slate-500 space-y-2">
-        <div>© 2026 Local Deals Hub — Connecting Neighborhood Shoppers & Stores</div>
-        <div>
-          Are you a business owner?{' '}
-          <Link href="/merchant" className="text-blue-400 hover:underline font-semibold">
-            Partner with us & list your deals →
-          </Link>
-        </div>
-      </footer>
     </div>
   );
 }
