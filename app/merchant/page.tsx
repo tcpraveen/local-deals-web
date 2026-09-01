@@ -47,13 +47,13 @@ export default function MerchantPortal() {
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Auth Form State
+  // Auth State
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Modal States
+  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDealId, setEditingDealId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -272,26 +272,26 @@ export default function MerchantPortal() {
   if (!user) {
     return (
       <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col justify-between">
-        <header className="border-b border-slate-800 bg-[#0a101d]/80 px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="text-sm font-semibold text-slate-400 hover:text-white flex items-center gap-1.5">
-            ← Return to Consumer Marketplace
+        <header className="border-b border-slate-800 bg-[#0a101d]/80 px-4 sm:px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="text-xs sm:text-sm font-semibold text-slate-400 hover:text-white flex items-center gap-1.5">
+            ← Storefront
           </Link>
           <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-1 rounded-full font-bold">
-            Merchant Partner Center
+            Merchant Center
           </span>
         </header>
 
-        <div className="max-w-md w-full mx-auto p-6 my-auto">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
+        <div className="max-w-md w-full mx-auto p-4 sm:p-6 my-auto">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             <div className="text-center space-y-2">
               <span className="text-3xl">🏬</span>
-              <h1 className="text-2xl font-bold text-white">Merchant Partner Sign In</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-white">Merchant Partner Sign In</h1>
               <p className="text-xs text-slate-400">
                 Publish promotions, generate branded QR counter stands, and track WhatsApp leads.
               </p>
             </div>
 
-            <form onSubmit={handleAuth} className="space-y-4 text-sm">
+            <form onSubmit={handleAuth} className="space-y-4 text-xs sm:text-sm">
               <div>
                 <label className="block text-slate-400 mb-1">Business Email</label>
                 <input
@@ -338,7 +338,7 @@ export default function MerchantPortal() {
         </div>
 
         <footer className="text-center py-6 text-xs text-slate-600 border-t border-slate-900">
-          Local Deals Hub Partner Infrastructure • End-to-End Encrypted
+          Local Deals Hub Partner Infrastructure
         </footer>
       </div>
     );
@@ -346,22 +346,28 @@ export default function MerchantPortal() {
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
+      {/* Mobile-Optimized Header */}
       <header className="border-b border-slate-800 bg-[#0a101d] sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <span className="text-base font-bold text-white flex items-center gap-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
               🏬 Merchant Central
             </span>
             <Link
               href="/"
-              className="text-xs text-slate-400 hover:text-white bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+              className="sm:hidden text-[11px] text-slate-400 hover:text-white bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700"
             >
-              ← View Live Storefront
+              ← Storefront
             </Link>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-400 hidden sm:inline">{user.email}</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/"
+              className="hidden sm:inline-block text-xs text-slate-400 hover:text-white bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+            >
+              ← View Live Storefront
+            </Link>
             <button
               onClick={() => {
                 setEditingDealId(null);
@@ -386,7 +392,7 @@ export default function MerchantPortal() {
                 });
                 setIsModalOpen(true);
               }}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm px-4 py-2 rounded-xl transition shadow-lg shadow-blue-500/20"
+              className="flex-1 sm:flex-none text-center bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm px-3.5 py-2 rounded-xl transition shadow-lg shadow-blue-500/20"
             >
               + Create Promotion
             </button>
@@ -400,33 +406,35 @@ export default function MerchantPortal() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 space-y-1">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
+        {/* KPI Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Active Promotions</span>
             <div className="text-2xl font-bold text-white">{myDeals.length}</div>
           </div>
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 space-y-1">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Total WhatsApp Inquiries</span>
             <div className="text-2xl font-bold text-emerald-400">{totalInquiries}</div>
           </div>
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 space-y-1">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Partner Tier</span>
             <div className="text-2xl font-bold text-blue-400">Verified Seller</div>
           </div>
         </div>
 
-        <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        {/* Live Deals Section */}
+        <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h2 className="text-base font-bold text-white">Your Live Store Deals</h2>
+            <h2 className="text-sm sm:text-base font-bold text-white">Your Live Store Deals</h2>
             <span className="text-xs text-slate-400">{myDeals.length} Listings</span>
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-slate-500 text-sm">Loading your store listings...</div>
+            <div className="py-12 text-center text-slate-500 text-xs sm:text-sm">Loading your store listings...</div>
           ) : myDeals.length === 0 ? (
             <div className="py-12 text-center space-y-3">
-              <p className="text-slate-400 text-sm">You have not posted any active deals yet.</p>
+              <p className="text-slate-400 text-xs sm:text-sm">You have not posted any active deals yet.</p>
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-xl transition"
@@ -435,63 +443,120 @@ export default function MerchantPortal() {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-3">Brand & Title</th>
-                    <th className="py-3">Category</th>
-                    <th className="py-3">Deal Price</th>
-                    <th className="py-3">Location</th>
-                    <th className="py-3">Inquiries</th>
-                    <th className="py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {myDeals.map((deal) => (
-                    <tr key={deal.id} className="hover:bg-slate-800/30">
-                      <td className="py-3 flex items-center gap-3">
-                        <img
-                          src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
-                          alt={deal.business}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                        />
-                        <div>
-                          <div className="font-bold text-white truncate max-w-xs">{deal.title}</div>
-                          <div className="text-[11px] text-slate-400">{deal.business}</div>
+            <>
+              {/* 1. Mobile View (Card Style - Clean & Readable on Phones) */}
+              <div className="block md:hidden space-y-3">
+                {myDeals.map((deal) => (
+                  <div
+                    key={deal.id}
+                    className="p-3.5 bg-[#080d16] border border-slate-800/80 rounded-xl space-y-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
+                        alt={deal.business}
+                        className="w-10 h-10 rounded-full object-cover border border-slate-700 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold text-white leading-tight truncate">{deal.title}</h4>
+                        <p className="text-[11px] text-slate-400 truncate">{deal.business} • {deal.location}</p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-xs font-bold text-emerald-400">
+                            {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                            {deal.category}
+                          </span>
+                          <span className="text-[10px] text-slate-300">
+                            💬 {deal.inquiries_count || 0} leads
+                          </span>
                         </div>
-                      </td>
-                      <td className="py-3 text-slate-300">{deal.category}</td>
-                      <td className="py-3 font-bold text-emerald-400">
-                        {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
-                      </td>
-                      <td className="py-3 text-slate-400">{deal.location}</td>
-                      <td className="py-3 text-slate-300">💬 {deal.inquiries_count || 0}</td>
-                      <td className="py-3 text-right space-x-2">
-                        <button
-                          onClick={() => setQrDeal(deal)}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
-                        >
-                          📱 QR Stand
-                        </button>
-                        <button
-                          onClick={() => openEdit(deal)}
-                          className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs transition"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteDeal(deal.id)}
-                          className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs transition"
-                        >
-                          Delete
-                        </button>
-                      </td>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                      <button
+                        onClick={() => setQrDeal(deal)}
+                        className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                      >
+                        📱 QR Stand
+                      </button>
+                      <button
+                        onClick={() => openEdit(deal)}
+                        className="flex-1 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs font-medium transition"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDeal(deal.id)}
+                        className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 2. Desktop View (Table Style) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400">
+                      <th className="py-3">Brand & Title</th>
+                      <th className="py-3">Category</th>
+                      <th className="py-3">Deal Price</th>
+                      <th className="py-3">Location</th>
+                      <th className="py-3">Inquiries</th>
+                      <th className="py-3 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {myDeals.map((deal) => (
+                      <tr key={deal.id} className="hover:bg-slate-800/30">
+                        <td className="py-3 flex items-center gap-3">
+                          <img
+                            src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
+                            alt={deal.business}
+                            className="w-8 h-8 rounded-full object-cover border border-slate-700 flex-shrink-0"
+                          />
+                          <div>
+                            <div className="font-bold text-white truncate max-w-xs">{deal.title}</div>
+                            <div className="text-[11px] text-slate-400">{deal.business}</div>
+                          </div>
+                        </td>
+                        <td className="py-3 text-slate-300">{deal.category}</td>
+                        <td className="py-3 font-bold text-emerald-400">
+                          {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
+                        </td>
+                        <td className="py-3 text-slate-400">{deal.location}</td>
+                        <td className="py-3 text-slate-300">💬 {deal.inquiries_count || 0}</td>
+                        <td className="py-3 text-right space-x-2">
+                          <button
+                            onClick={() => setQrDeal(deal)}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
+                          >
+                            📱 QR Stand
+                          </button>
+                          <button
+                            onClick={() => openEdit(deal)}
+                            className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs transition"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDeal(deal.id)}
+                            className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs transition"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </main>
@@ -499,9 +564,9 @@ export default function MerchantPortal() {
       {/* Post/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 className="text-base font-bold text-white">
+              <h2 className="text-sm sm:text-base font-bold text-white">
                 {editingDealId ? 'Update Promotion' : 'Publish New Store Promotion'}
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white text-xl">
@@ -509,7 +574,7 @@ export default function MerchantPortal() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveDeal} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveDeal} className="space-y-3 sm:space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Deal Headline *</label>
                 <input
@@ -522,7 +587,7 @@ export default function MerchantPortal() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Store / Brand Name *</label>
                   <input
@@ -615,7 +680,7 @@ export default function MerchantPortal() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">WhatsApp Contact Number</label>
                   <input
@@ -657,7 +722,7 @@ export default function MerchantPortal() {
                     const file = e.target.files?.[0];
                     if (file) handleImageUpload(file, 'deal');
                   }}
-                  className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
+                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
                 />
                 {uploading && <p className="text-xs text-blue-400 mt-1">Uploading deal photo...</p>}
                 {formData.image && !uploading && <p className="text-xs text-emerald-400 mt-1">✓ Deal photo ready</p>}
@@ -666,7 +731,7 @@ export default function MerchantPortal() {
               <div>
                 <label className="block text-slate-400 mb-1">Offer Description & Conditions</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="Terms, sizing, validity details..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -674,18 +739,18 @@ export default function MerchantPortal() {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700"
+                  className="px-3.5 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={uploading || logoUploading || submitting}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg text-xs"
                 >
                   {submitting ? 'Saving...' : editingDealId ? 'Update Promotion' : 'Publish Offer'}
                 </button>
@@ -698,9 +763,9 @@ export default function MerchantPortal() {
       {/* Branded Printable QR Flyer Modal */}
       {qrDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl text-center space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
+              <span className="text-[11px] sm:text-xs font-semibold text-blue-400 uppercase tracking-wider">
                 Official Counter Stand
               </span>
               <button onClick={() => setQrDeal(null)} className="text-slate-400 hover:text-white text-lg">
@@ -708,23 +773,23 @@ export default function MerchantPortal() {
               </button>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
+            <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
               <div className="flex flex-col items-center gap-2">
                 <img
                   src={qrDeal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
                   alt={qrDeal.business}
-                  className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm"
+                  className="w-12 sm:w-14 h-12 sm:h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm"
                 />
                 <div className="text-xs font-black uppercase tracking-wider text-blue-700">
                   {qrDeal.business}
                 </div>
               </div>
 
-              <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-900 leading-snug">
                 {qrDeal.title}
               </h3>
 
-              <div className="inline-block bg-rose-50 text-rose-600 border border-rose-200 font-black text-sm px-3.5 py-1 rounded-full">
+              <div className="inline-block bg-rose-50 text-rose-600 border border-rose-200 font-black text-xs sm:text-sm px-3.5 py-1 rounded-full">
                 {qrDeal.discount}
               </div>
 
@@ -733,11 +798,11 @@ export default function MerchantPortal() {
                   value={`https://wa.me/${qrDeal.phone?.replace(/[^0-9]/g, '') || ''}?text=${encodeURIComponent(
                     `Hi! I scanned the QR counter stand at ${qrDeal.business} for "${qrDeal.title}".`
                   )}`}
-                  size={150}
+                  size={140}
                 />
               </div>
 
-              <p className="text-[11px] font-medium text-slate-500">
+              <p className="text-[10px] sm:text-[11px] font-medium text-slate-500">
                 Point camera to chat & claim directly on WhatsApp
               </p>
             </div>
@@ -745,13 +810,13 @@ export default function MerchantPortal() {
             <div className="flex gap-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl shadow-lg transition"
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl shadow-lg transition"
               >
                 🖨️ Print Stand
               </button>
               <button
                 onClick={() => setQrDeal(null)}
-                className="px-4 py-2.5 bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs rounded-xl transition"
+                className="px-4 py-2 bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs rounded-xl transition"
               >
                 Close
               </button>
