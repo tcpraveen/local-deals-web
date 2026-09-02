@@ -103,9 +103,7 @@ export default function Home() {
   const handleWhatsAppClaim = async (deal: Deal) => {
     try {
       await supabase.rpc('increment_inquiries', { deal_id: deal.id });
-    } catch (e) {
-      // Continue even if telemetry fails
-    }
+    } catch (e) {}
 
     const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`;
@@ -213,13 +211,12 @@ export default function Home() {
         if (sortBy === 'price_low') return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
         if (sortBy === 'price_high') return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
         if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
-        return 0; // Default latest
+        return 0;
       });
   }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, showSavedOnly, savedDealIds, sortBy]);
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
-      {/* Top Header */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -251,7 +248,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Hero Banner */}
       <div className="py-8 sm:py-12 text-center max-w-3xl mx-auto px-4 space-y-3">
         <div className="inline-block text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
           100% Genuine Local Offers
@@ -263,7 +259,6 @@ export default function Home() {
           Shop directly from verified neighborhood businesses with interactive map directions and store billing.
         </p>
 
-        {/* Search, Sort & Verified Filter Row */}
         <div className="flex flex-col sm:flex-row gap-2 pt-4 max-w-xl mx-auto">
           <input
             type="text"
@@ -297,7 +292,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Category Filters */}
         <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2">
           {CATEGORIES.map((cat) => (
             <button
@@ -314,7 +308,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Location Filters */}
         <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs text-slate-400 pt-1">
           <span className="text-slate-500">Area:</span>
           {LOCATIONS.map((loc) => (
@@ -333,7 +326,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Main Feed */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         {loading ? (
           <div className="py-20 text-center text-slate-500 text-sm">Loading verified local deals...</div>
@@ -363,7 +355,6 @@ export default function Home() {
                   key={deal.id}
                   className="bg-[#0e1626] border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between hover:border-slate-700 transition"
                 >
-                  {/* Image Card Box */}
                   <div className="relative h-48 w-full bg-slate-900">
                     <img src={deal.image} alt={deal.title} className="w-full h-full object-cover" />
                     <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
@@ -380,7 +371,6 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* Card Body */}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -422,7 +412,6 @@ export default function Home() {
                       <p className="text-xs text-slate-400 line-clamp-2">{deal.description}</p>
                     </div>
 
-                    {/* Pricing, Address & Actions */}
                     <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
                       <div className="flex items-baseline gap-2">
                         <span className="text-lg font-black text-emerald-400">
@@ -437,7 +426,6 @@ export default function Home() {
                         <div className="text-[11px] text-slate-400 truncate">🏬 {deal.store_address}</div>
                       )}
 
-                      {/* Dual Action: One-Tap Social Share + Direct WhatsApp Lead Claim */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleShareDeal(deal)}
@@ -497,7 +485,7 @@ export default function Home() {
             <a
               href={
                 mapModalDeal.google_maps_url ||
-                `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                `https://maps.google.com/?q=${encodeURIComponent(
                   `${mapModalDeal.business} ${mapModalDeal.location || ''}`
                 )}`
               }
