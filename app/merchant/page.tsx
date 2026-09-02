@@ -141,6 +141,18 @@ export default function MerchantPortal() {
     await supabase.auth.signOut();
   };
 
+  // Auto-clean & format merchant phone numbers
+  const handlePhoneBlur = () => {
+    let clean = (formData.phone || '').replace(/[^0-9]/g, '');
+    if (clean.startsWith('91') && clean.length === 12) {
+      clean = clean.substring(2);
+    }
+    if (clean.startsWith('0') && clean.length === 11) {
+      clean = clean.substring(1);
+    }
+    setFormData((prev) => ({ ...prev, phone: clean }));
+  };
+
   const handleImageUpload = async (file: File, type: 'deal' | 'logo') => {
     if (file.size > 2 * 1024 * 1024) {
       alert('File size exceeds 2MB limit.');
@@ -211,6 +223,8 @@ export default function MerchantPortal() {
 
     try {
       setSubmitting(true);
+      const cleanPhone = (formData.phone || '').replace(/[^0-9]/g, '');
+
       const payload: any = {
         title: formData.title,
         business: formData.business,
@@ -220,7 +234,7 @@ export default function MerchantPortal() {
         deal_price: formData.deal_price ? Number(formData.deal_price) : null,
         category: formData.category,
         location: formData.location || 'Main Bazaar',
-        phone: formData.phone || '',
+        phone: cleanPhone,
         expires_at: formData.expires_at || null,
         is_featured: Boolean(formData.is_featured),
         store_address: formData.store_address || '',
@@ -346,8 +360,7 @@ export default function MerchantPortal() {
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
-      {/* Mobile-Optimized Header */}
-      <header className="border-b border-slate-800 bg-[#0a101d] sticky top-0 z-40 no-print">
+      <header className="border-b border-slate-800 bg-[#0a101d] sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center justify-between">
             <span className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
@@ -406,8 +419,7 @@ export default function MerchantPortal() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 no-print">
-        {/* KPI Metrics */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Active Promotions</span>
@@ -423,7 +435,6 @@ export default function MerchantPortal() {
           </div>
         </div>
 
-        {/* Live Deals Section */}
         <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h2 className="text-sm sm:text-base font-bold text-white">Your Live Store Deals</h2>
@@ -563,7 +574,7 @@ export default function MerchantPortal() {
 
       {/* Post/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 no-print">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-sm sm:text-base font-bold text-white">
@@ -682,11 +693,12 @@ export default function MerchantPortal() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">WhatsApp Contact Number</label>
+                  <label className="block text-slate-400 mb-1">WhatsApp Contact (10 Digits)</label>
                   <input
                     type="tel"
                     placeholder="e.g. 9876543210"
                     value={formData.phone}
+                    onBlur={handlePhoneBlur}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
@@ -764,7 +776,7 @@ export default function MerchantPortal() {
       {qrDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl text-center space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2 no-print">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <span className="text-[11px] sm:text-xs font-semibold text-blue-400 uppercase tracking-wider">
                 Official Counter Stand
               </span>
@@ -773,8 +785,7 @@ export default function MerchantPortal() {
               </button>
             </div>
 
-            {/* Print Area Card */}
-            <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner print-area">
+            <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
               <div className="flex flex-col items-center gap-2">
                 <img
                   src={qrDeal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
@@ -808,7 +819,7 @@ export default function MerchantPortal() {
               </p>
             </div>
 
-            <div className="flex gap-2 no-print">
+            <div className="flex gap-2">
               <button
                 onClick={() => window.print()}
                 className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl shadow-lg transition"
