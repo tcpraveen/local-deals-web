@@ -51,6 +51,7 @@ export default function Home() {
   const [sortBy, setSortBy] = useState('latest');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
 
   // Modals
   const [mapModalDeal, setMapModalDeal] = useState<Deal | null>(null);
@@ -112,6 +113,20 @@ export default function Home() {
       `Hello ${deal.business}! I found your offer "${deal.title}" on Local Deals Hub. I'd like to claim this offer!`
     );
     window.open(`https://wa.me/${phoneWithCountry}?text=${text}`, '_blank');
+  };
+
+  const handleShareDeal = (deal: Deal) => {
+    const shareUrl = `${window.location.origin}/?deal=${deal.id}`;
+    if (navigator.share) {
+      navigator.share({
+        title: `${deal.business} - ${deal.title}`,
+        text: `Check out this verified offer from ${deal.business}: ${deal.discount}!`,
+        url: shareUrl,
+      }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(shareUrl);
+      alert('Deal link copied to clipboard!');
+    }
   };
 
   const openReviews = async (deal: Deal) => {
@@ -183,6 +198,7 @@ export default function Home() {
   const filteredDeals = useMemo(() => {
     return deals
       .filter((deal) => {
+        if (showSavedOnly && !savedDealIds.includes(deal.id)) return false;
         const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
         const matchesLocation = selectedLocation === 'All' || deal.location === selectedLocation;
         const matchesVerified = !verifiedOnly || deal.is_verified_merchant;
@@ -199,64 +215,55 @@ export default function Home() {
         if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
         return 0; // Default latest
       });
-  }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, sortBy]);
+  }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, showSavedOnly, savedDealIds, sortBy]);
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
-      {/* Top Navigation */}
+      {/* Top Header */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/90 sticky top-0 z-40 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
             <span className="text-xl">🏷️</span>
-            <span className="text-base sm:text-lg font-bold tracking-tight text-white">Local Deals Hub</span>
-          </div>
+            <span className="text-sm sm:text-base font-bold tracking-tight text-white">Local Deals Hub</span>
+          </Link>
 
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => {
-                if (savedDealIds.length > 0) {
-                  setDeals(deals.filter((d) => savedDealIds.includes(d.id)));
-                } else {
-                  fetchDeals();
-                }
-              }}
-              className="text-xs bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700/60 transition"
-            >
-              ❤️ Saved ({savedDealIds.length})
-            </button>
-            <button
-              onClick={() => setVerifiedOnly(!verifiedOnly)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition ${
-                verifiedOnly
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                  : 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+              onClick={() => setShowSavedOnly(!showSavedOnly)}
+              className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
+                showSavedOnly
+                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                  : 'bg-slate-800/80 text-slate-300 hover:text-white border-slate-700/60'
               }`}
             >
-              ✓ Verified Only
+              <span>❤️</span>
+              <span className="font-semibold">{savedDealIds.length}</span>
             </button>
+
             <Link
               href="/merchant"
-              className="text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-xl shadow-lg shadow-blue-500/20 transition"
+              className="text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3 sm:px-3.5 py-1.5 rounded-xl shadow-lg shadow-blue-500/20 transition flex items-center gap-1.5"
             >
-              🏬 Merchant Portal →
+              <span>🏬</span>
+              <span>Merchant Portal</span>
             </Link>
           </div>
         </div>
       </header>
 
       {/* Hero Banner */}
-      <div className="py-10 text-center max-w-3xl mx-auto px-4 space-y-3">
+      <div className="py-8 sm:py-12 text-center max-w-3xl mx-auto px-4 space-y-3">
         <div className="inline-block text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
           100% Genuine Local Offers
         </div>
-        <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+        <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight">
           Discover Verified Local Discounts & Services
         </h1>
         <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
           Shop directly from verified neighborhood businesses with interactive map directions and store billing.
         </p>
 
-        {/* Search & Sort Bar */}
+        {/* Search, Sort & Verified Filter Row */}
         <div className="flex flex-col sm:flex-row gap-2 pt-4 max-w-xl mx-auto">
           <input
             type="text"
@@ -265,19 +272,32 @@ export default function Home() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-          >
-            <option value="latest">Sort: Latest Added</option>
-            <option value="rating">Sort: Top Rated</option>
-            <option value="price_low">Sort: Price (Low to High)</option>
-            <option value="price_high">Sort: Price (High to Low)</option>
-          </select>
+          <div className="flex gap-2">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="flex-1 sm:flex-none bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+            >
+              <option value="latest">Sort: Latest Added</option>
+              <option value="rating">Sort: Top Rated</option>
+              <option value="price_low">Price (Low to High)</option>
+              <option value="price_high">Price (High to Low)</option>
+            </select>
+
+            <button
+              onClick={() => setVerifiedOnly(!verifiedOnly)}
+              className={`text-xs px-3 py-2.5 rounded-xl border font-semibold transition whitespace-nowrap ${
+                verifiedOnly
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                  : 'bg-[#0e1626] text-slate-400 border-slate-800 hover:text-slate-200'
+              }`}
+            >
+              ✓ Verified Only
+            </button>
+          </div>
         </div>
 
-        {/* Category & Location Filters */}
+        {/* Category Filters */}
         <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2">
           {CATEGORIES.map((cat) => (
             <button
@@ -294,8 +314,9 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs text-slate-400">
-          <span>Area:</span>
+        {/* Location Filters */}
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs text-slate-400 pt-1">
+          <span className="text-slate-500">Area:</span>
           {LOCATIONS.map((loc) => (
             <button
               key={loc}
@@ -312,7 +333,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Main Deals Feed */}
+      {/* Main Feed */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         {loading ? (
           <div className="py-20 text-center text-slate-500 text-sm">Loading verified local deals...</div>
@@ -325,11 +346,12 @@ export default function Home() {
                 setSelectedLocation('All');
                 setSearchQuery('');
                 setVerifiedOnly(false);
+                setShowSavedOnly(false);
                 fetchDeals();
               }}
-              className="text-xs bg-slate-800 text-blue-400 px-4 py-2 rounded-lg border border-slate-700"
+              className="text-xs bg-slate-800 text-blue-400 px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition"
             >
-              Reset Filters
+              Reset All Filters
             </button>
           </div>
         ) : (
@@ -341,7 +363,7 @@ export default function Home() {
                   key={deal.id}
                   className="bg-[#0e1626] border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between hover:border-slate-700 transition"
                 >
-                  {/* Top Image Box */}
+                  {/* Image Card Box */}
                   <div className="relative h-48 w-full bg-slate-900">
                     <img src={deal.image} alt={deal.title} className="w-full h-full object-cover" />
                     <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
@@ -358,10 +380,9 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* Card Content */}
+                  {/* Card Body */}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div className="space-y-2">
-                      {/* Store Logo & Verified Status */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <img
@@ -369,11 +390,11 @@ export default function Home() {
                             alt={deal.business}
                             className="w-6 h-6 rounded-full object-cover border border-slate-700"
                           />
-                          <span className="font-bold text-xs uppercase tracking-wide text-slate-200">
+                          <span className="font-bold text-xs uppercase tracking-wide text-slate-200 truncate max-w-[120px] sm:max-w-[180px]">
                             {deal.business}
                           </span>
                           {deal.is_verified_merchant && (
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold">
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
                               ✓ Verified
                             </span>
                           )}
@@ -387,7 +408,6 @@ export default function Home() {
                         </button>
                       </div>
 
-                      {/* Ratings */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => openReviews(deal)}
@@ -398,13 +418,12 @@ export default function Home() {
                         </button>
                       </div>
 
-                      {/* Title & Description */}
                       <h3 className="text-sm sm:text-base font-bold text-white leading-snug">{deal.title}</h3>
                       <p className="text-xs text-slate-400 line-clamp-2">{deal.description}</p>
                     </div>
 
-                    {/* Price & Location */}
-                    <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                    {/* Pricing, Address & Actions */}
+                    <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
                       <div className="flex items-baseline gap-2">
                         <span className="text-lg font-black text-emerald-400">
                           {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
@@ -418,13 +437,22 @@ export default function Home() {
                         <div className="text-[11px] text-slate-400 truncate">🏬 {deal.store_address}</div>
                       )}
 
-                      {/* WhatsApp CTA */}
-                      <button
-                        onClick={() => handleWhatsAppClaim(deal)}
-                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-                      >
-                        Claim via WhatsApp →
-                      </button>
+                      {/* Dual Action: One-Tap Social Share + Direct WhatsApp Lead Claim */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleShareDeal(deal)}
+                          className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center justify-center"
+                          title="Share Deal"
+                        >
+                          🔗
+                        </button>
+                        <button
+                          onClick={() => handleWhatsAppClaim(deal)}
+                          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-1.5"
+                        >
+                          Claim via WhatsApp →
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

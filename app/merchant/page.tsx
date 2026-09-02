@@ -47,13 +47,13 @@ export default function MerchantPortal() {
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Auth State
+  // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Modals
+  // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDealId, setEditingDealId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -347,7 +347,7 @@ export default function MerchantPortal() {
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
       {/* Mobile-Optimized Header */}
-      <header className="border-b border-slate-800 bg-[#0a101d] sticky top-0 z-40">
+      <header className="border-b border-slate-800 bg-[#0a101d] sticky top-0 z-40 no-print">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center justify-between">
             <span className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
@@ -406,7 +406,7 @@ export default function MerchantPortal() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 no-print">
         {/* KPI Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
@@ -444,7 +444,7 @@ export default function MerchantPortal() {
             </div>
           ) : (
             <>
-              {/* 1. Mobile View (Card Style - Clean & Readable on Phones) */}
+              {/* Mobile View: Cards */}
               <div className="block md:hidden space-y-3">
                 {myDeals.map((deal) => (
                   <div
@@ -498,7 +498,7 @@ export default function MerchantPortal() {
                 ))}
               </div>
 
-              {/* 2. Desktop View (Table Style) */}
+              {/* Desktop View: Table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
@@ -563,7 +563,7 @@ export default function MerchantPortal() {
 
       {/* Post/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 no-print">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-sm sm:text-base font-bold text-white">
@@ -760,11 +760,11 @@ export default function MerchantPortal() {
         </div>
       )}
 
-      {/* Branded Printable QR Flyer Modal */}
+      {/* Official Counter Stand Print Modal */}
       {qrDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl text-center space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2 no-print">
               <span className="text-[11px] sm:text-xs font-semibold text-blue-400 uppercase tracking-wider">
                 Official Counter Stand
               </span>
@@ -773,7 +773,8 @@ export default function MerchantPortal() {
               </button>
             </div>
 
-            <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
+            {/* Print Area Card */}
+            <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner print-area">
               <div className="flex flex-col items-center gap-2">
                 <img
                   src={qrDeal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
@@ -807,7 +808,7 @@ export default function MerchantPortal() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 no-print">
               <button
                 onClick={() => window.print()}
                 className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl shadow-lg transition"
