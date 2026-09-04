@@ -246,6 +246,7 @@ function DealsContent() {
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
+      {/* Navigation Header */}
       <header className="border-b border-slate-800/80 bg-[#0a101d]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -277,6 +278,7 @@ function DealsContent() {
         </div>
       </header>
 
+      {/* Hero Section & Filters */}
       <div className="py-8 sm:py-12 text-center max-w-3xl mx-auto px-4 space-y-3">
         <div className="inline-block text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
           100% Genuine Local Offers
@@ -355,6 +357,7 @@ function DealsContent() {
         </div>
       </div>
 
+      {/* Main Deals Grid */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         {loading ? (
           <div className="py-20 text-center text-slate-500 text-sm">Loading verified local deals...</div>
@@ -392,6 +395,7 @@ function DealsContent() {
                       : 'border border-slate-800 hover:border-slate-700'
                   }`}
                 >
+                  {/* Card Image Cover & Badges */}
                   <div className="relative h-48 w-full bg-slate-900">
                     <img src={deal.image} alt={deal.title} className="w-full h-full object-cover" />
                     <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
@@ -417,33 +421,42 @@ function DealsContent() {
                     </button>
                   </div>
 
+                  {/* Card Details */}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                    <div className="space-y-2.5">
+                      {/* Polished Store Identity & Live Map Button Row */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <img
                             src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
                             alt={deal.business}
-                            className="w-6 h-6 rounded-full object-cover border border-slate-700"
+                            className="w-7 h-7 rounded-full object-cover border border-slate-700/80 flex-shrink-0"
                           />
-                          <span className="font-bold text-xs uppercase tracking-wide text-slate-200 truncate max-w-[120px] sm:max-w-[180px]">
-                            {deal.business}
-                          </span>
-                          {deal.is_verified_merchant && (
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
-                              ✓ Verified
-                            </span>
-                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs uppercase tracking-wide text-slate-200 truncate">
+                                {deal.business}
+                              </span>
+                              {deal.is_verified_merchant && (
+                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                  ✓ Verified
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
+                        {/* Crisp Single-Line Map Pill */}
                         <button
                           onClick={() => setMapModalDeal(deal)}
-                          className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20"
+                          className="flex-shrink-0 text-[11px] font-semibold text-sky-400 hover:text-white bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/25 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 whitespace-nowrap shadow-sm"
                         >
-                          🗺️ Live Map
+                          <span>📍</span>
+                          <span>Map</span>
                         </button>
                       </div>
 
+                      {/* Ratings */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => openReviews(deal)}
@@ -458,6 +471,7 @@ function DealsContent() {
                       <p className="text-xs text-slate-400 line-clamp-2">{deal.description}</p>
                     </div>
 
+                    {/* Bottom Pricing, Address & Actions */}
                     <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-baseline gap-2">
@@ -476,8 +490,17 @@ function DealsContent() {
                         )}
                       </div>
 
+                      {/* Clickable Physical Store Address Trigger */}
                       {deal.store_address && (
-                        <div className="text-[11px] text-slate-400 truncate">🏬 {deal.store_address}</div>
+                        <button
+                          onClick={() => setMapModalDeal(deal)}
+                          className="text-[11px] text-slate-400 hover:text-sky-300 flex items-center gap-1.5 truncate group text-left w-full transition"
+                        >
+                          <span className="text-slate-500 group-hover:text-sky-400 transition">🏬</span>
+                          <span className="truncate underline decoration-slate-700/80 group-hover:decoration-sky-400 underline-offset-2">
+                            {deal.store_address}
+                          </span>
+                        </button>
                       )}
 
                       <div className="flex items-center gap-2">
@@ -544,7 +567,7 @@ function DealsContent() {
             <a
               href={
                 mapModalDeal.google_maps_url ||
-                `http://googleusercontent.com/maps.google.com/2{encodeURIComponent(
+                `https://maps.google.com/?q=${encodeURIComponent(
                   `${mapModalDeal.business} ${mapModalDeal.location || ''}`
                 )}`
               }
