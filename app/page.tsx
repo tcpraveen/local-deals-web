@@ -26,6 +26,8 @@ interface Deal {
   location?: string;
   phone?: string;
   expires_at?: string;
+  opening_time?: string;
+  closing_time?: string;
   image: string;
   description: string;
   views_count?: number;
@@ -43,6 +45,20 @@ interface Deal {
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
 
+function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return parseFloat((R * c).toFixed(1));
+}
+
 function DealsContent() {
   const searchParams = useSearchParams();
   const highlightedDealId = searchParams.get('deal');
@@ -56,10 +72,18 @@ function DealsContent() {
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [savedDealIds, setSavedDealIds] = useState<number[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // Modals
+  // User Geolocation Coordinates
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoLocating, setGeoLocating] = useState(false);
+
+  // Modals & Voucher State
   const [mapModalDeal, setMapModalDeal] = useState<Deal | null>(null);
   const [reviewModalDeal, setReviewModalDeal] = useState<Deal | null>(null);
+  const [claimVoucherDeal, setClaimVoucherDeal] = useState<Deal | null>(null);
+  const [generatedVoucher, setGeneratedVoucher] = useState<string>('');
+
   const [reviewsList, setReviewsList] = useState<Review[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewerName, setReviewerName] = useState('');
@@ -73,21 +97,46 @@ function DealsContent() {
     if (saved) {
       try {
         setSavedDealIds(JSON.parse(saved));
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) {}
+    }
+    const storedTheme = localStorage.getItem('local_deals_theme');
+    if (storedTheme) {
+      setIsDarkMode(storedTheme === 'dark');
     }
   }, []);
 
-  // Auto-scroll and highlight target deal if linked via URL query (?deal=ID)
   useEffect(() => {
     if (highlightedDealId && !loading && deals.length > 0) {
       const el = document.getElementById(`deal-${highlightedDealId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [highlightedDealId, loading, deals]);
+
+  const toggleTheme = () => {
+    const nextTheme = !isDarkMode;
+    setIsDarkMode(nextTheme);
+    localStorage.setItem('local_deals_theme', nextTheme ? 'dark' : 'light');
+  };
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    setGeoLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setSortBy('near_me');
+        setGeoLocating(false);
+      },
+      () => {
+        alert('Location access was denied. Unable to calculate distance.');
+        setGeoLocating(false);
+      },
+      { timeout: 10000 }
+    );
+  };
 
   const fetchDeals = async () => {
     try {
@@ -114,15 +163,21 @@ function DealsContent() {
     localStorage.setItem('local_deals_saved', JSON.stringify(updated));
   };
 
-  const handleWhatsAppClaim = async (deal: Deal) => {
+  const handleClaimVoucher = async (deal: Deal) => {
+    // Generate clean 6-digit redemption code
+    const voucher = `${deal.id}${Math.floor(1000 + Math.random() * 9000)}`;
+    setGeneratedVoucher(voucher);
+    setClaimVoucherDeal(deal);
+
     try {
       await supabase.rpc('increment_inquiries', { deal_id: deal.id });
     } catch (e) {}
 
+    // Send pre-filled claim request with voucher code to WhatsApp
     const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`;
     const text = encodeURIComponent(
-      `Hello ${deal.business}! I found your offer "${deal.title}" on Local Deals Hub. I'd like to claim this offer!`
+      `Hello ${deal.business}! I am claiming "${deal.title}" via Local Deals Hub.\nMy Voucher Code is: ${voucher}`
     );
     window.open(`https://wa.me/${phoneWithCountry}?text=${text}`, '_blank');
   };
@@ -141,6 +196,23 @@ function DealsContent() {
       navigator.clipboard.writeText(shareUrl);
       alert('Offer link copied to clipboard!');
     }
+  };
+
+  const getStoreStatus = (opening?: string, closing?: string) => {
+    const op = opening || '09:00';
+    const cl = closing || '21:30';
+    const now = new Date();
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    const [oH, oM] = op.split(':').map(Number);
+    const [cH, cM] = cl.split(':').map(Number);
+    const openMins = oH * 60 + (oM || 0);
+    const closeMins = cH * 60 + (cM || 0);
+
+    const isOpen = currentMins >= openMins && currentMins <= closeMins;
+    return isOpen
+      ? { label: '🟢 Open Now', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' }
+      : { label: '🔴 Closed', color: 'bg-rose-500/15 text-rose-400 border-rose-500/30' };
   };
 
   const getExpiryStatus = (expiresAt?: string) => {
@@ -237,36 +309,62 @@ function DealsContent() {
         return matchesCategory && matchesLocation && matchesVerified && matchesSearch;
       })
       .sort((a, b) => {
+        if (sortBy === 'near_me' && userCoords) {
+          const distA = calculateHaversineDistance(userCoords.lat, userCoords.lng, a.lat || 8.81, a.lng || 78.14);
+          const distB = calculateHaversineDistance(userCoords.lat, userCoords.lng, b.lat || 8.81, b.lng || 78.14);
+          return distA - distB;
+        }
         if (sortBy === 'price_low') return (Number(a.deal_price) || 0) - (Number(b.deal_price) || 0);
         if (sortBy === 'price_high') return (Number(b.deal_price) || 0) - (Number(a.deal_price) || 0);
         if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
         return 0;
       });
-  }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, showSavedOnly, savedDealIds, sortBy]);
+  }, [deals, searchQuery, selectedCategory, selectedLocation, verifiedOnly, showSavedOnly, savedDealIds, sortBy, userCoords]);
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased">
-      {/* Navigation Header */}
-      <header className="border-b border-slate-800/80 bg-[#0a101d]/90 sticky top-0 z-40 backdrop-blur-md">
+    <div className={`min-h-screen font-sans antialiased transition-colors duration-300 ${
+      isDarkMode ? 'bg-[#070b14] text-slate-100' : 'bg-slate-50 text-slate-900'
+    }`}>
+      {/* Dynamic Header */}
+      <header className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
+        isDarkMode ? 'border-slate-800/80 bg-[#0a101d]/90' : 'border-slate-200 bg-white/90 shadow-sm'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="text-xl">🏷️</span>
-            <span className="text-sm sm:text-base font-bold tracking-tight text-white">Local Deals Hub</span>
+            <span className={`text-sm sm:text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>
+              Local Deals Hub
+            </span>
           </Link>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Theme Toggle Button */}
+            <button
+              onClick={toggleTheme}
+              className={`p-2 rounded-xl border transition text-sm ${
+                isDarkMode ? 'bg-slate-800 text-amber-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+              title="Toggle Light / Dark Mode"
+            >
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+
+            {/* Saved Items */}
             <button
               onClick={() => setShowSavedOnly(!showSavedOnly)}
               className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
                 showSavedOnly
                   ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
-                  : 'bg-slate-800/80 text-slate-300 hover:text-white border-slate-700/60'
+                  : isDarkMode
+                  ? 'bg-slate-800 text-slate-300 hover:text-white border-slate-700'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}
             >
               <span>❤️</span>
               <span className="font-semibold">{savedDealIds.length}</span>
             </button>
 
+            {/* Merchant Portal Navigation */}
             <Link
               href="/merchant"
               className="text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3 sm:px-3.5 py-1.5 rounded-xl shadow-lg shadow-blue-500/20 transition flex items-center gap-1.5"
@@ -278,31 +376,57 @@ function DealsContent() {
         </div>
       </header>
 
-      {/* Hero Section & Filters */}
+      {/* Hero Section */}
       <div className="py-8 sm:py-12 text-center max-w-3xl mx-auto px-4 space-y-3">
-        <div className="inline-block text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
+        <div className="inline-block text-[11px] font-bold text-blue-500 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider">
           100% Genuine Local Offers
         </div>
-        <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight">
+        <h1 className={`text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight ${
+          isDarkMode ? 'text-white' : 'text-slate-900'
+        }`}>
           Discover Verified Local Discounts & Services
         </h1>
-        <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+        <p className={`text-xs sm:text-sm max-w-xl mx-auto ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
           Shop directly from verified neighborhood businesses with interactive map directions and store billing.
         </p>
 
+        {/* Search, GPS Sort & Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-2 pt-4 max-w-xl mx-auto">
           <input
             type="text"
             placeholder="Search deals, stores, or areas..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className={`flex-1 border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+              isDarkMode
+                ? 'bg-[#0e1626] border-slate-800 text-white placeholder-slate-500'
+                : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+            }`}
           />
+
           <div className="flex gap-2">
+            {/* GPS Near Me Button */}
+            <button
+              onClick={handleGetLocation}
+              disabled={geoLocating}
+              className={`text-xs px-3 py-2.5 rounded-xl border font-semibold transition whitespace-nowrap flex items-center gap-1.5 ${
+                sortBy === 'near_me'
+                  ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                  : isDarkMode
+                  ? 'bg-[#0e1626] text-blue-400 border-slate-800 hover:border-slate-700'
+                  : 'bg-white text-blue-600 border-slate-200 shadow-sm'
+              }`}
+            >
+              <span>📍</span>
+              <span>{geoLocating ? 'Locating...' : 'Near Me'}</span>
+            </button>
+
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="flex-1 sm:flex-none bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+              className={`flex-1 sm:flex-none border rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+                isDarkMode ? 'bg-[#0e1626] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-800'
+              }`}
             >
               <option value="latest">Sort: Latest Added</option>
               <option value="rating">Sort: Top Rated</option>
@@ -315,14 +439,17 @@ function DealsContent() {
               className={`text-xs px-3 py-2.5 rounded-xl border font-semibold transition whitespace-nowrap ${
                 verifiedOnly
                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                  : 'bg-[#0e1626] text-slate-400 border-slate-800 hover:text-slate-200'
+                  : isDarkMode
+                  ? 'bg-[#0e1626] text-slate-400 border-slate-800'
+                  : 'bg-white text-slate-600 border-slate-200'
               }`}
             >
-              ✓ Verified Only
+              ✓ Verified
             </button>
           </div>
         </div>
 
+        {/* Category Filter Pills */}
         <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2">
           {CATEGORIES.map((cat) => (
             <button
@@ -331,7 +458,9 @@ function DealsContent() {
               className={`text-xs px-3 py-1 rounded-lg font-medium transition ${
                 selectedCategory === cat
                   ? 'bg-blue-600 text-white shadow'
-                  : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  : isDarkMode
+                  ? 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
               }`}
             >
               {cat}
@@ -339,16 +468,21 @@ function DealsContent() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs text-slate-400 pt-1">
-          <span className="text-slate-500">Area:</span>
+        {/* Location Filter Row */}
+        <div className={`flex flex-wrap items-center justify-center gap-1.5 text-xs pt-1 ${
+          isDarkMode ? 'text-slate-400' : 'text-slate-600'
+        }`}>
+          <span className="opacity-60">Area:</span>
           {LOCATIONS.map((loc) => (
             <button
               key={loc}
               onClick={() => setSelectedLocation(loc)}
               className={`px-2.5 py-0.5 rounded transition ${
                 selectedLocation === loc
-                  ? 'bg-slate-700 text-white font-semibold'
-                  : 'hover:text-slate-200'
+                  ? isDarkMode
+                    ? 'bg-slate-700 text-white font-semibold'
+                    : 'bg-slate-300 text-slate-900 font-semibold'
+                  : 'hover:opacity-100'
               }`}
             >
               {loc}
@@ -371,6 +505,8 @@ function DealsContent() {
                 setSearchQuery('');
                 setVerifiedOnly(false);
                 setShowSavedOnly(false);
+                setUserCoords(null);
+                setSortBy('latest');
                 fetchDeals();
               }}
               className="text-xs bg-slate-800 text-blue-400 px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition"
@@ -384,23 +520,37 @@ function DealsContent() {
               const isSaved = savedDealIds.includes(deal.id);
               const isTargeted = String(deal.id) === highlightedDealId;
               const expiry = getExpiryStatus(deal.expires_at);
+              const storeStatus = getStoreStatus(deal.opening_time, deal.closing_time);
+
+              // Calculate Haversine Distance if user coords enabled
+              const distanceKm = userCoords
+                ? calculateHaversineDistance(userCoords.lat, userCoords.lng, deal.lat || 8.81, deal.lng || 78.14)
+                : null;
 
               return (
                 <div
                   id={`deal-${deal.id}`}
                   key={deal.id}
-                  className={`bg-[#0e1626] rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between transition-all duration-500 ${
+                  className={`rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between transition-all duration-300 border ${
+                    isDarkMode ? 'bg-[#0e1626] border-slate-800' : 'bg-white border-slate-200'
+                  } ${
                     isTargeted
-                      ? 'border-2 border-blue-500 ring-4 ring-blue-500/20 scale-[1.01]'
-                      : 'border border-slate-800 hover:border-slate-700'
+                      ? 'border-blue-500 ring-4 ring-blue-500/20 scale-[1.01]'
+                      : 'hover:border-slate-700'
                   }`}
                 >
-                  {/* Card Image Cover & Badges */}
+                  {/* Image Cover, Categories & Urgent Badges */}
                   <div className="relative h-48 w-full bg-slate-900">
                     <img src={deal.image} alt={deal.title} className="w-full h-full object-cover" />
-                    <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
-                      {deal.category}
-                    </span>
+
+                    <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+                      <span className="bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md">
+                        {deal.category}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded backdrop-blur-md border ${storeStatus.color}`}>
+                        {storeStatus.label}
+                      </span>
+                    </div>
 
                     <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
                       <span className="bg-rose-600 text-white text-[11px] font-extrabold px-2.5 py-1 rounded-md shadow-md">
@@ -421,10 +571,10 @@ function DealsContent() {
                     </button>
                   </div>
 
-                  {/* Card Details */}
+                  {/* Body Content */}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div className="space-y-2.5">
-                      {/* Polished Store Identity & Live Map Button Row */}
+                      {/* Store Identity, Verified Badge & Live Map Trigger */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <img
@@ -434,7 +584,9 @@ function DealsContent() {
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-xs uppercase tracking-wide text-slate-200 truncate">
+                              <span className={`font-bold text-xs uppercase tracking-wide truncate ${
+                                isDarkMode ? 'text-slate-200' : 'text-slate-800'
+                              }`}>
                                 {deal.business}
                               </span>
                               {deal.is_verified_merchant && (
@@ -446,7 +598,6 @@ function DealsContent() {
                           </div>
                         </div>
 
-                        {/* Crisp Single-Line Map Pill */}
                         <button
                           onClick={() => setMapModalDeal(deal)}
                           className="flex-shrink-0 text-[11px] font-semibold text-sky-400 hover:text-white bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/25 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 whitespace-nowrap shadow-sm"
@@ -456,26 +607,38 @@ function DealsContent() {
                         </button>
                       </div>
 
-                      {/* Ratings */}
-                      <div className="flex items-center gap-2">
+                      {/* Ratings & GPS Distance Distance Ticker */}
+                      <div className="flex items-center justify-between">
                         <button
                           onClick={() => openReviews(deal)}
                           className="text-xs text-amber-400 font-semibold hover:underline flex items-center gap-1"
                         >
                           ⭐ {deal.rating || 5.0}{' '}
-                          <span className="text-slate-500 font-normal">({deal.review_count || 12} reviews)</span>
+                          <span className={isDarkMode ? 'text-slate-500 font-normal' : 'text-slate-400 font-normal'}>
+                            ({deal.review_count || 12} reviews)
+                          </span>
                         </button>
+
+                        {distanceKm !== null && (
+                          <span className="text-[11px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                            📍 {distanceKm} km away
+                          </span>
+                        )}
                       </div>
 
-                      <h3 className="text-sm sm:text-base font-bold text-white leading-snug">{deal.title}</h3>
-                      <p className="text-xs text-slate-400 line-clamp-2">{deal.description}</p>
+                      <h3 className={`text-sm sm:text-base font-bold leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                        {deal.title}
+                      </h3>
+                      <p className={`text-xs line-clamp-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                        {deal.description}
+                      </p>
                     </div>
 
-                    {/* Bottom Pricing, Address & Actions */}
-                    <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
+                    {/* Bottom Pricing & Action Controls */}
+                    <div className={`pt-2 border-t space-y-2.5 ${isDarkMode ? 'border-slate-800/80' : 'border-slate-100'}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-black text-emerald-400">
+                          <span className="text-lg font-black text-emerald-500">
                             {deal.deal_price ? `₹${deal.deal_price}` : deal.discount}
                           </span>
                           {deal.original_price && (
@@ -490,37 +653,55 @@ function DealsContent() {
                         )}
                       </div>
 
-                      {/* Clickable Physical Store Address Trigger */}
+                      {/* Store Address Trigger */}
                       {deal.store_address && (
                         <button
                           onClick={() => setMapModalDeal(deal)}
-                          className="text-[11px] text-slate-400 hover:text-sky-300 flex items-center gap-1.5 truncate group text-left w-full transition"
+                          className={`text-[11px] flex items-center gap-1.5 truncate group text-left w-full transition ${
+                            isDarkMode ? 'text-slate-400 hover:text-sky-300' : 'text-slate-600 hover:text-sky-600'
+                          }`}
                         >
                           <span className="text-slate-500 group-hover:text-sky-400 transition">🏬</span>
-                          <span className="truncate underline decoration-slate-700/80 group-hover:decoration-sky-400 underline-offset-2">
+                          <span className="truncate underline decoration-slate-700/60 group-hover:decoration-sky-400 underline-offset-2">
                             {deal.store_address}
                           </span>
                         </button>
                       )}
 
+                      {/* Share, Phone Call & Direct WhatsApp Voucher Claim */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleShareDeal(deal)}
-                          className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center justify-center"
+                          className={`px-3 py-2.5 rounded-xl border text-xs font-semibold transition flex items-center justify-center ${
+                            isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
                           title="Share Deal Link"
                         >
                           🔗
                         </button>
+
+                        {deal.phone && (
+                          <a
+                            href={`tel:${deal.phone.replace(/[^0-9]/g, '')}`}
+                            className={`px-3 py-2.5 rounded-xl border text-xs font-semibold transition flex items-center justify-center ${
+                              isDarkMode ? 'bg-slate-800 hover:bg-emerald-600/20 text-emerald-400 border-slate-700' : 'bg-slate-100 hover:bg-emerald-50 text-emerald-600 border-slate-200'
+                            }`}
+                            title="Call Store Directly"
+                          >
+                            📞
+                          </a>
+                        )}
+
                         <button
                           disabled={expiry?.isExpired}
-                          onClick={() => handleWhatsAppClaim(deal)}
+                          onClick={() => handleClaimVoucher(deal)}
                           className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 ${
                             expiry?.isExpired
                               ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                               : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
                           }`}
                         >
-                          {expiry?.isExpired ? 'Offer Expired' : 'Claim via WhatsApp →'}
+                          {expiry?.isExpired ? 'Offer Expired' : 'Claim Voucher →'}
                         </button>
                       </div>
                     </div>
@@ -532,7 +713,39 @@ function DealsContent() {
         )}
       </main>
 
-      {/* Map Modal */}
+      {/* Voucher Confirmation Dialog */}
+      {claimVoucherDeal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className={`border rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4 ${
+            isDarkMode ? 'bg-[#0e1626] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <span className="text-3xl">🎉</span>
+            <h3 className="text-base font-extrabold">Voucher Generated!</h3>
+            <p className="text-xs opacity-75">
+              Present this code at {claimVoucherDeal.business} to redeem your special discount in-store:
+            </p>
+
+            <div className="p-4 bg-blue-600/10 border-2 border-dashed border-blue-500 rounded-2xl">
+              <span className="text-2xl font-black tracking-widest text-blue-500 font-mono">
+                {generatedVoucher}
+              </span>
+            </div>
+
+            <p className="text-[11px] opacity-60">
+              A pre-filled WhatsApp message has opened so the merchant has your record on file.
+            </p>
+
+            <button
+              onClick={() => setClaimVoucherDeal(null)}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl transition"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Map Modal */}
       {mapModalDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
@@ -581,7 +794,7 @@ function DealsContent() {
         </div>
       )}
 
-      {/* Review Modal */}
+      {/* Verified Reviews Modal */}
       {reviewModalDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 shadow-2xl space-y-4">
