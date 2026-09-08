@@ -290,7 +290,7 @@ export default function MerchantPortal() {
         lat: formData.lat || 8.8053,
         lng: formData.lng || 78.145,
         image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
-        description: formData.description,
+        description: formData.description || '',
         user_id: user.id,
       };
 
@@ -331,7 +331,6 @@ export default function MerchantPortal() {
 
   const totalInquiries = myDeals.reduce((sum, d) => sum + (d.inquiries_count || 0), 0);
 
-  // Generate 7-Day Performance Sparkline trend
   const sparklineData = [
     Math.round(totalInquiries * 0.08),
     Math.round(totalInquiries * 0.12),
@@ -723,216 +722,225 @@ export default function MerchantPortal() {
       {/* Post / Edit Deal Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 p-5 sm:p-6 bg-[#0e1626]">
               <h2 className="text-sm sm:text-base font-bold text-white">
                 {editingDealId ? 'Update Promotion' : 'Publish New Store Promotion'}
               </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white text-xl">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white text-xl leading-none"
+              >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveDeal} className="space-y-3 sm:space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Deal Headline *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Flat 30% Off Men Cotton Shirts"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Form with Scrollable Body and Sticky Footer */}
+            <form onSubmit={handleSaveDeal} className="flex flex-col flex-1 overflow-hidden">
+              <div className="overflow-y-auto p-5 sm:p-6 space-y-3 sm:space-y-4 text-xs flex-1">
                 <div>
-                  <label className="block text-slate-400 mb-1">Store / Brand Name *</label>
+                  <label className="block text-slate-400 mb-1">Deal Headline *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Classic Men Trends"
-                    value={formData.business}
-                    onChange={(e) => setFormData({ ...formData, business: e.target.value })}
+                    placeholder="e.g. Flat 30% Off Men Cotton Shirts"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Store / Brand Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Classic Men Trends"
+                      value={formData.business}
+                      onChange={(e) => setFormData({ ...formData, business: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Discount Tag (Auto/Custom)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 30% OFF"
+                      value={formData.discount}
+                      onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Operating Hours */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Opening Time (24h)</label>
+                    <input
+                      type="time"
+                      value={formData.opening_time}
+                      onChange={(e) => setFormData({ ...formData, opening_time: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Closing Time (24h)</label>
+                    <input
+                      type="time"
+                      value={formData.closing_time}
+                      onChange={(e) => setFormData({ ...formData, closing_time: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-slate-400 mb-1">Discount Tag (Auto/Custom)</label>
+                  <label className="block text-slate-400 mb-1">Store Brand Logo (Optional, Max 2MB)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file, 'logo');
+                    }}
+                    className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
+                  />
+                  {logoUploading && <p className="text-xs text-blue-400 mt-1">Uploading logo...</p>}
+                  {formData.logo_url && !logoUploading && <p className="text-xs text-emerald-400 mt-1">✓ Logo linked</p>}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Original Price (₹)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 1999"
+                      value={formData.original_price}
+                      onChange={(e) => handlePriceChange('original_price', e.target.value)}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Offer Price (₹)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 1399"
+                      value={formData.deal_price}
+                      onChange={(e) => handlePriceChange('deal_price', e.target.value)}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Category</label>
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    >
+                      {CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Area / Location</label>
+                    <select
+                      value={formData.location}
+                      onChange={(e) => handleLocationChange(e.target.value)}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    >
+                      {LOCATIONS.map((loc) => (
+                        <option key={loc.name} value={loc.name}>
+                          {loc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">WhatsApp Contact (10 Digits)</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. 9876543210"
+                      value={formData.phone}
+                      onBlur={handlePhoneBlur}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Offer Expiry Date</label>
+                    <input
+                      type="date"
+                      value={formData.expires_at}
+                      onChange={(e) => setFormData({ ...formData, expires_at: e.target.value })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1">Physical Store Street Address</label>
                   <input
                     type="text"
-                    placeholder="e.g. 30% OFF"
-                    value={formData.discount}
-                    onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
+                    placeholder="e.g. 42, Main Bazaar Road"
+                    value={formData.store_address}
+                    onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
-              </div>
 
-              {/* Operating Hours */}
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Opening Time (24h)</label>
+                  <label className="block text-slate-400 mb-1">Deal Image (Max 2MB)</label>
                   <input
-                    type="time"
-                    value={formData.opening_time}
-                    onChange={(e) => setFormData({ ...formData, opening_time: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file, 'deal');
+                    }}
+                    className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
                   />
+                  {uploading && <p className="text-xs text-blue-400 mt-1">Uploading deal photo...</p>}
+                  {formData.image && !uploading && <p className="text-xs text-emerald-400 mt-1">✓ Deal photo ready</p>}
                 </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Closing Time (24h)</label>
-                  <input
-                    type="time"
-                    value={formData.closing_time}
-                    onChange={(e) => setFormData({ ...formData, closing_time: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1">Store Brand Logo (Optional, Max 2MB)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file, 'logo');
-                  }}
-                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
-                />
-                {logoUploading && <p className="text-xs text-blue-400 mt-1">Uploading logo...</p>}
-                {formData.logo_url && !logoUploading && <p className="text-xs text-emerald-400 mt-1">✓ Logo linked</p>}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Original Price (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 1999"
-                    value={formData.original_price}
-                    onChange={(e) => handlePriceChange('original_price', e.target.value)}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Offer Price (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 1399"
-                    value={formData.deal_price}
-                    onChange={(e) => handlePriceChange('deal_price', e.target.value)}
+                  <label className="block text-slate-400 mb-1">Offer Description & Conditions</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Terms, sizing, validity details..."
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Category</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  >
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Area / Location</label>
-                  <select
-                    value={formData.location}
-                    onChange={(e) => handleLocationChange(e.target.value)}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  >
-                    {LOCATIONS.map((loc) => (
-                      <option key={loc.name} value={loc.name}>
-                        {loc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">WhatsApp Contact (10 Digits)</label>
-                  <input
-                    type="tel"
-                    placeholder="e.g. 9876543210"
-                    value={formData.phone}
-                    onBlur={handlePhoneBlur}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Offer Expiry Date</label>
-                  <input
-                    type="date"
-                    value={formData.expires_at}
-                    onChange={(e) => setFormData({ ...formData, expires_at: e.target.value })}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Physical Store Street Address</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 42, Main Bazaar Road"
-                  value={formData.store_address}
-                  onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
-                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Deal Image (Max 2MB)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file, 'deal');
-                  }}
-                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer bg-[#080d16] border border-slate-800 rounded-lg p-1.5"
-                />
-                {uploading && <p className="text-xs text-blue-400 mt-1">Uploading deal photo...</p>}
-                {formData.image && !uploading && <p className="text-xs text-emerald-400 mt-1">✓ Deal photo ready</p>}
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Offer Description & Conditions</label>
-                <textarea
-                  rows={2}
-                  placeholder="Terms, sizing, validity details..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
+              {/* Fixed Sticky Action Footer */}
+              <div className="border-t border-slate-800 bg-[#0a101d] px-5 sm:px-6 py-3.5 flex items-center justify-end gap-2.5 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-3.5 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 text-xs"
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 text-xs font-medium transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={uploading || logoUploading || submitting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg text-xs"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20 text-xs transition"
                 >
                   {submitting ? 'Saving...' : editingDealId ? 'Update Promotion' : 'Publish Offer'}
                 </button>
