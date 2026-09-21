@@ -3,51 +3,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-
-interface Deal {
-  id: number;
-  title: string;
-  business: string;
-  logo_url?: string;
-  discount: string;
-  original_price?: number | string;
-  deal_price?: number | string;
-  category: string;
-  location?: string;
-  phone?: string;
-  expires_at?: string;
-  opening_time?: string;
-  closing_time?: string;
-  image: string;
-  description: string;
-  inquiries_count?: number;
-  is_verified_merchant?: boolean;
-  store_address?: string;
-  google_maps_url?: string;
-  rating?: number;
-  review_count?: number;
-}
+import { Deal, FALLBACK_LOCATIONS, getDealDistance, getVouchersLeft, isDealActive, slugifyStoreName } from '@/lib/deals';
+import { isStoreOpen } from '@/lib/storeHours';
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
-const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
-
-export function isStoreOpen(openingTime?: string, closingTime?: string): boolean {
-  if (!openingTime || !closingTime) return true;
-  try {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const [openH, openM] = openingTime.split(':').map(Number);
-    const [closeH, closeM] = closingTime.split(':').map(Number);
-
-    const startMinutes = openH * 60 + (openM || 0);
-    const endMinutes = closeH * 60 + (closeM || 0);
-
-    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-  } catch {
-    return true;
-  }
-}
+const LOCATIONS = FALLBACK_LOCATIONS;
 
 export default function Storefront() {
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -58,9 +18,17 @@ export default function Storefront() {
   const [favorites, setFavorites] = useState<number[]>([]);
   const [onlyVerified, setOnlyVerified] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [locationStatus, setLocationStatus] = useState<'checking' | 'available' | 'fallback'>('fallback');
 
   useEffect(() => {
     fetchDeals();
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        () => setLocationStatus('available'),
+        () => setLocationStatus('fallback'),
+        { timeout: 5000 }
+      );
+    }
 
     const saved = localStorage.getItem('ldh_favorites');
     if (saved) {
@@ -72,7 +40,7 @@ export default function Storefront() {
     }
   }, []);
 
-  const fetchDeals = async () => {
+  async function fetchDeals() {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -81,13 +49,13 @@ export default function Storefront() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDeals(data || []);
+      setDeals((data || []).filter((deal: Deal) => isDealActive(deal)));
     } catch (err: any) {
       console.error('Error fetching deals:', err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const toggleFavorite = (id: number) => {
     setFavorites((prev) => {
@@ -111,11 +79,8 @@ export default function Storefront() {
 
     const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
     const message = encodeURIComponent(
-      `Hello ${deal.business}!\nI want to claim your offer from Local Deals Hub:\n\n` +
-        `🏷️ Offer: *${deal.title}*\n` +
-        `🎟️ Voucher Code: *${voucherCode}*\n` +
-        `💰 Deal Price: ₹${deal.deal_price || deal.discount}\n\n` +
-        `Please confirm availability.`
+      `Hi ${deal.business}, I found your offer '${deal.title}' on Local Deals Hub! ` +
+      `Here is my voucher code: *${voucherCode}*. Is this available if I visit today?`
     );
 
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
@@ -238,6 +203,14 @@ export default function Storefront() {
           {/* Locations Filter Pills */}
           <div className="flex items-center justify-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-slate-500 font-medium mr-1">Area:</span>
+            <select
+              value={selectedLocation}
+              onChange={(event) => setSelectedLocation(event.target.value)}
+              aria-label="Filter deals by area"
+              className="rounded-lg border border-slate-800 bg-[#0e1626] px-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              {LOCATIONS.map((loc) => <option key={loc} value={loc}>{loc}</option>)}
+            </select>
             {LOCATIONS.map((loc) => (
               <button
                 key={loc}
@@ -279,7 +252,7 @@ export default function Storefront() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredDeals.map((deal) => {
-                const open = isStoreOpen(deal.opening_time, deal.closing_time);
+                const open = isStoreOpen(deal.opening_time || '00:00', deal.closing_time || '23:59');
                 const isFav = favorites.includes(deal.id);
 
                 return (
@@ -307,7 +280,7 @@ export default function Storefront() {
                               : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
                           }`}
                         >
-                          {open ? '🟢 Open' : '🔴 Closed'}
+                          {open ? '🟢 Open Now' : '🔴 Closed'}
                         </span>
                       </div>
 
@@ -344,9 +317,9 @@ export default function Storefront() {
                               alt={deal.business}
                               className="w-6 h-6 rounded-full object-cover border border-slate-700 flex-shrink-0"
                             />
-                            <span className="text-xs font-bold text-slate-300 truncate">
+                            <Link href={`/store/${slugifyStoreName(deal.business)}`} className="text-xs font-bold text-slate-300 truncate hover:text-blue-400">
                               {deal.business}
-                            </span>
+                            </Link>
                             <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold flex-shrink-0">
                               ✓ Verified
                             </span>
@@ -358,6 +331,12 @@ export default function Storefront() {
                           >
                             📍 Map
                           </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                          <span className="px-2 py-1 rounded-lg bg-slate-800 text-slate-200">📍 {getDealDistance(deal)} km</span>
+                          <span>🚗 {Math.max(3, Math.round(getDealDistance(deal) * 3))} min</span>
+                          <span>🚶 {Math.max(6, Math.round(getDealDistance(deal) * 12))} min</span>
                         </div>
 
                         {/* Ratings */}
@@ -384,6 +363,11 @@ export default function Storefront() {
 
                       {/* Pricing & Claim Actions */}
                       <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                        {deal.scarcityText && (
+                          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">
+                            {deal.scarcityText}
+                          </div>
+                        )}
                         <div className="flex items-baseline gap-2">
                           <span className="text-base font-black text-emerald-400">
                             ₹{deal.deal_price || deal.original_price || 'Special'}
@@ -402,7 +386,19 @@ export default function Storefront() {
                           </span>
                         </div>
 
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-amber-400 font-semibold">🔥 {getVouchersLeft(deal)} vouchers left</span>
+                          {locationStatus === 'fallback' && <span className="text-slate-500">Area filter enabled</span>}
+                        </div>
+
                         <div className="flex items-center gap-2 pt-1">
+                          <a
+                            href={deal.phone ? `tel:${deal.phone}` : undefined}
+                            aria-disabled={!deal.phone}
+                            className={`px-3 py-2.5 rounded-xl text-xs font-bold transition ${deal.phone ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500 pointer-events-none'}`}
+                          >
+                            ☎ Call
+                          </a>
                           <button
                             onClick={() => handleClaimVoucher(deal)}
                             className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition flex items-center justify-center gap-1.5"

@@ -9,3 +9,54 @@ body {
   color: #f8fafc;
   min-height: 100vh;
 }
+
+.print-card {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-card,
+  .print-card * {
+    visibility: visible;
+  }
+
+  .print-card {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: white;
+    color: #111827;
+  }
+
+  .print-card-inner {
+    width: 4in;
+    min-height: 5.5in;
+    margin: 0.5in auto;
+    padding: 0.35in;
+    border: 2px solid #111827;
+    text-align: center;
+    font-family: Georgia, serif;
+  }
+
+  .print-card-kicker {
+    margin: 0 0 0.15in;
+    color: #047857;
+    font: 700 11px sans-serif;
+    letter-spacing: 0.12em;
+  }
+
+  .print-card h1 {
+    margin: 0 0 0.25in;
+    font-size: 24px;
+  }
+
+  .print-card p:last-child {
+    margin: 0.3in 0 0;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+}

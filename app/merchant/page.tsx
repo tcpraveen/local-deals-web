@@ -6,35 +6,7 @@ import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-
-interface Deal {
-  id: number;
-  user_id?: string;
-  title: string;
-  business: string;
-  logo_url?: string;
-  discount: string;
-  original_price?: number | string;
-  deal_price?: number | string;
-  category: string;
-  location?: string;
-  phone?: string;
-  expires_at?: string;
-  opening_time?: string;
-  closing_time?: string;
-  image: string;
-  description: string;
-  views_count?: number;
-  inquiries_count?: number;
-  is_featured?: boolean;
-  is_verified_merchant?: boolean;
-  store_address?: string;
-  google_maps_url?: string;
-  lat?: number;
-  lng?: number;
-  rating?: number;
-  review_count?: number;
-}
+import { Deal } from '@/lib/deals';
 
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
@@ -68,6 +40,9 @@ export default function MerchantPortal() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedResult, setScannedResult] = useState<string | null>(null);
   const [redeemSuccess, setRedeemSuccess] = useState(false);
+  const [voucherCode, setVoucherCode] = useState('');
+  const [redemptionError, setRedemptionError] = useState('');
+  const [redemptionCount, setRedemptionCount] = useState(0);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   const [formData, setFormData] = useState<Partial<Deal>>({
@@ -135,22 +110,46 @@ export default function MerchantPortal() {
     }
   }, [isScannerOpen]);
 
-  const handleVoucherCodeRedeem = async (code: string) => {
-    setScannedResult(code);
-    try {
-      await supabase.from('redemptions').insert([
-        {
-          voucher_code: code,
-          merchant_id: user?.id,
-        },
-      ]);
-      setRedeemSuccess(true);
-    } catch (e) {
-      setRedeemSuccess(true);
+  async function handleVoucherCodeRedeem(code: string) {
+    const normalizedCode = code.trim().toUpperCase();
+    if (!/^LDH-\d{4}$/.test(normalizedCode) || !user) {
+      setRedemptionError('Enter a valid voucher code in the LDH-1234 format.');
+      setRedeemSuccess(false);
+      return;
     }
-  };
 
-  const fetchMyDeals = async (userId: string) => {
+    setRedemptionError('');
+    setScannedResult(normalizedCode);
+    const { data: existing, error: lookupError } = await supabase
+      .from('redemptions')
+      .select('id')
+      .eq('voucher_code', normalizedCode)
+      .eq('merchant_id', user.id)
+      .maybeSingle();
+
+    if (lookupError) {
+      setRedemptionError(`Unable to verify voucher: ${lookupError.message}`);
+      return;
+    }
+    if (existing) {
+      setRedemptionError('This voucher has already been redeemed.');
+      return;
+    }
+
+    const { error } = await supabase.from('redemptions').insert([{
+      voucher_code: normalizedCode,
+      merchant_id: user.id,
+    }]);
+    if (error) {
+      setRedemptionError(`Unable to redeem voucher: ${error.message}`);
+      return;
+    }
+    setVoucherCode('');
+    setRedeemSuccess(true);
+    setRedemptionCount((count) => count + 1);
+  }
+
+  async function fetchMyDeals(userId: string) {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -161,12 +160,20 @@ export default function MerchantPortal() {
 
       if (error) throw error;
       setMyDeals(data || []);
+      const { count, error: redemptionCountError } = await supabase
+        .from('redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('merchant_id', userId);
+      if (redemptionCountError) {
+        console.error('Error loading redemption analytics:', redemptionCountError.message);
+      }
+      setRedemptionCount(count || 0);
     } catch (err: any) {
       console.error('Error fetching merchant deals:', err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,6 +337,10 @@ export default function MerchantPortal() {
   };
 
   const totalInquiries = myDeals.reduce((sum, d) => sum + (d.inquiries_count || 0), 0);
+  const printStore = myDeals[0]?.business || 'Local Deals Hub Merchant';
+  const printStoreUrl = typeof window === 'undefined'
+    ? '/'
+    : `${window.location.origin}/store/${myDeals[0] ? myDeals[0].business.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : ''}`;
 
   const sparklineData = [
     Math.round(totalInquiries * 0.08),
@@ -454,6 +465,13 @@ export default function MerchantPortal() {
             </button>
 
             <button
+              onClick={() => window.print()}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs sm:text-sm px-3 sm:px-3.5 py-2 rounded-xl transition border border-slate-700"
+            >
+              🖨️ Download Table-Top QR Card
+            </button>
+
+            <button
               onClick={() => {
                 setEditingDealId(null);
                 setFormData({
@@ -495,11 +513,41 @@ export default function MerchantPortal() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
         {/* KPI Performance Metrics */}
+        <section className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 className="text-sm font-bold text-white">Quick Voucher Verification</h2>
+            <p className="text-xs text-slate-400 mt-1">Enter a customer&apos;s LDH-XXXX code to apply the discount at the counter.</p>
+          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleVoucherCodeRedeem(voucherCode);
+            }}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <input
+              value={voucherCode}
+              onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
+              placeholder="LDH-1234"
+              pattern="LDH-[0-9]{4}"
+              maxLength={8}
+              aria-label="Voucher code"
+              className="flex-1 bg-[#080d16] border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
+            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold">
+              Verify Voucher
+            </button>
+          </form>
+          {redemptionError && <p className="text-xs text-rose-400">{redemptionError}</p>}
+          {redeemSuccess && <p className="text-xs font-semibold text-emerald-400">✓ Voucher Verified: Discount Applied</p>}
+        </section>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Active Promotions</span>
             <div className="text-2xl font-bold text-white">{myDeals.length}</div>
           </div>
+
           <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
             <span className="text-xs text-slate-400 font-medium">Total Inquiries & Claims</span>
             <div className="text-2xl font-bold text-emerald-400">{totalInquiries}</div>
@@ -508,6 +556,11 @@ export default function MerchantPortal() {
             <span className="text-xs text-slate-400 font-medium">Partner Tier</span>
             <div className="text-2xl font-bold text-blue-400">Verified Seller</div>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-[#0e1626] px-5 py-4">
+          <span className="text-xs text-slate-400">Redeemed at Counter</span>
+          <span className="text-2xl font-black text-emerald-400">{redemptionCount}</span>
         </div>
 
         {/* 7-Day Performance Sparkline Graph */}
@@ -677,6 +730,15 @@ export default function MerchantPortal() {
           )}
         </div>
       </main>
+
+      <section className="print-card hidden" aria-label="Printable table-top QR card">
+        <div className="print-card-inner">
+          <p className="print-card-kicker">LOCAL DEALS HUB</p>
+          <h1>{printStore}</h1>
+          <QRCode value={printStoreUrl} size={180} />
+          <p>Scan to claim today&apos;s exclusive in-store walk-in offers - Powered by Local Deals Hub</p>
+        </div>
+      </section>
 
       {/* Camera QR Scanner Dialog */}
       {isScannerOpen && (
