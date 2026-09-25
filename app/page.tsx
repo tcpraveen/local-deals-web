@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
-import { Deal, FALLBACK_LOCATIONS, getDealDistance, getVouchersLeft, isDealActive, slugifyStoreName } from '@/lib/deals';
+import { Deal, FALLBACK_LOCATIONS, getDealDistance, getVouchersLeft, isDealActive, normalizeDeal, SAMPLE_DEALS, slugifyStoreName } from '@/lib/deals';
 import { isStoreOpen } from '@/lib/storeHours';
 
 const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
@@ -41,17 +41,24 @@ export default function Storefront() {
   }, []);
 
   async function fetchDeals() {
+    if (!isSupabaseConfigured) {
+      setDeals(SAMPLE_DEALS.filter(isDealActive));
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data: deals, error } = await supabase
         .from('deals')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDeals((data || []).filter((deal: Deal) => isDealActive(deal)));
-    } catch (err: any) {
-      console.error('Error fetching deals:', err.message);
+      setDeals((deals || []).map((deal: Record<string, unknown>) => normalizeDeal(deal)).filter(isDealActive));
+    } catch (err) {
+      console.error('Error fetching deals:', err);
+      setDeals(SAMPLE_DEALS.filter(isDealActive));
     } finally {
       setLoading(false);
     }
@@ -363,9 +370,9 @@ export default function Storefront() {
 
                       {/* Pricing & Claim Actions */}
                       <div className="space-y-3 pt-2 border-t border-slate-800/80">
-                        {deal.scarcityText && (
+                        {(deal.scarcity_text || deal.scarcityText) && (
                           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">
-                            {deal.scarcityText}
+                            {deal.scarcity_text || deal.scarcityText}
                           </div>
                         )}
                         <div className="flex items-baseline gap-2">

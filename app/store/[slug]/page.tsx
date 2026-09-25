@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
-import { Deal, getVouchersLeft, isDealActive } from '@/lib/deals';
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
+import { Deal, getVouchersLeft, isDealActive, normalizeDeal, SAMPLE_DEALS, slugifyStoreName } from '@/lib/deals';
 
 export default function StorePage() {
   const params = useParams<{ slug: string }>();
@@ -13,13 +13,19 @@ export default function StorePage() {
 
   useEffect(() => {
     const loadStore = async () => {
+      if (!isSupabaseConfigured) {
+        setDeals(SAMPLE_DEALS.filter((deal) => slugifyStoreName(deal.business) === params.slug));
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase.from('deals').select('*').order('created_at', { ascending: false });
       if (error) {
         console.error('Error loading store offers:', error.message);
+        setDeals(SAMPLE_DEALS.filter((deal) => slugifyStoreName(deal.business) === params.slug));
       } else {
-        const storeDeals = (data || []).filter((deal: Deal) =>
-          deal.business.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') === params.slug &&
-          isDealActive(deal)
+        const storeDeals = (data || []).map((deal: Record<string, unknown>) => normalizeDeal(deal)).filter((deal: Deal) =>
+          slugifyStoreName(deal.business) === params.slug && isDealActive(deal)
         );
         setDeals(storeDeals);
       }

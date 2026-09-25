@@ -112,9 +112,10 @@ export default function MerchantPortal() {
 
   async function handleVoucherCodeRedeem(code: string) {
     const normalizedCode = code.trim().toUpperCase();
+    setRedeemSuccess(false);
+    setRedemptionError('');
     if (!/^LDH-\d{4}$/.test(normalizedCode) || !user) {
       setRedemptionError('Enter a valid voucher code in the LDH-1234 format.');
-      setRedeemSuccess(false);
       return;
     }
 
@@ -466,9 +467,9 @@ export default function MerchantPortal() {
 
             <button
               onClick={() => window.print()}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs sm:text-sm px-3 sm:px-3.5 py-2 rounded-xl transition border border-slate-700"
+              className="bg-zinc-900 hover:bg-zinc-800 text-zinc-100 font-medium text-xs sm:text-sm px-3 sm:px-3.5 py-2 rounded-xl transition border border-zinc-800"
             >
-              🖨️ Download Table-Top QR Card
+              🖨️ Download/Print Counter QR Card
             </button>
 
             <button
@@ -513,7 +514,7 @@ export default function MerchantPortal() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
         {/* KPI Performance Metrics */}
-        <section className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 space-y-4">
+        <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="text-sm font-bold text-white">Quick Voucher Verification</h2>
             <p className="text-xs text-slate-400 mt-1">Enter a customer&apos;s LDH-XXXX code to apply the discount at the counter.</p>
@@ -532,14 +533,18 @@ export default function MerchantPortal() {
               pattern="LDH-[0-9]{4}"
               maxLength={8}
               aria-label="Voucher code"
-              className="flex-1 bg-[#080d16] border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
+              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-zinc-100 font-mono focus:outline-none focus:border-emerald-500"
             />
             <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold">
               Verify Voucher
             </button>
           </form>
-          {redemptionError && <p className="text-xs text-rose-400">{redemptionError}</p>}
-          {redeemSuccess && <p className="text-xs font-semibold text-emerald-400">✓ Voucher Verified: Discount Applied</p>}
+          {redemptionError && <p role="alert" className="text-xs text-rose-400">{redemptionError}</p>}
+          {redeemSuccess && (
+            <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-3 text-sm font-bold text-emerald-300">
+              ✓ Voucher Valid: Discount Applied
+            </p>
+          )}
         </section>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -733,10 +738,16 @@ export default function MerchantPortal() {
 
       <section className="print-card hidden" aria-label="Printable table-top QR card">
         <div className="print-card-inner">
-          <p className="print-card-kicker">LOCAL DEALS HUB</p>
-          <h1>{printStore}</h1>
-          <QRCode value={printStoreUrl} size={180} />
-          <p>Scan to claim today&apos;s exclusive in-store walk-in offers - Powered by Local Deals Hub</p>
+          {[0, 1].map((face) => (
+            <div className={`print-card-face print-card-face-${face}`} key={face}>
+              <div>
+                <p className="print-card-kicker">LOCAL DEALS HUB</p>
+                <h1>{printStore}</h1>
+                <p>Scan to claim today&apos;s exclusive in-store walk-in offers - Powered by Local Deals Hub</p>
+              </div>
+              <QRCode value={printStoreUrl} size={150} />
+            </div>
+          ))}
         </div>
       </section>
 
@@ -926,6 +937,29 @@ export default function MerchantPortal() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={formData.lat ?? ''}
+                      onChange={(event) => setFormData({ ...formData, lat: Number(event.target.value) })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={formData.lng ?? ''}
+                      onChange={(event) => setFormData({ ...formData, lng: Number(event.target.value) })}
+                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500"
+                    />
                   </div>
                 </div>
 

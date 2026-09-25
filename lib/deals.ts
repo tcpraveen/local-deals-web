@@ -9,6 +9,7 @@ export interface Deal {
   deal_price?: number | string;
   category: string;
   location?: string;
+  area?: string;
   phone?: string;
   expires_at?: string;
   opening_time?: string;
@@ -16,6 +17,7 @@ export interface Deal {
   image: string;
   description: string;
   scarcityText?: string;
+  scarcity_text?: string;
   views_count?: number;
   inquiries_count?: number;
   is_featured?: boolean;
@@ -28,6 +30,42 @@ export interface Deal {
   review_count?: number;
   vouchers_left?: number;
   voucher_limit?: number;
+}
+
+export const SAMPLE_DEALS: Deal[] = [
+  {
+    id: -1,
+    title: 'Everyday essentials at a special price',
+    business: 'MJ TRADERS',
+    discount: '20% OFF',
+    original_price: 500,
+    deal_price: 400,
+    category: 'Retail',
+    location: 'Main Bazaar',
+    phone: '',
+    opening_time: '09:00',
+    closing_time: '21:00',
+    image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=900&q=80',
+    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
+    scarcity_text: '🔥 Sample offer',
+    lat: 8.8053,
+    lng: 78.145,
+  },
+];
+
+export function normalizeDeal(record: Record<string, unknown>): Deal {
+  return {
+    ...record,
+    id: Number(record.id),
+    title: String(record.title || 'Local offer'),
+    business: String(record.business || record.shop_name || 'Local merchant'),
+    discount: String(record.discount || record.discount_badge || 'Special Offer'),
+    deal_price: (record.deal_price ?? record.discount_price) as Deal['deal_price'],
+    location: String(record.location || record.area || ''),
+    opening_time: String(record.opening_time || record.open_time || '09:00'),
+    closing_time: String(record.closing_time || record.close_time || '21:00'),
+    scarcityText: String(record.scarcityText || record.scarcity_text || '') || undefined,
+  } as Deal;
 }
 
 export const FALLBACK_LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road'];

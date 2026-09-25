@@ -1,6 +1,6 @@
 export function isStoreOpen(openTime: string, closeTime: string): boolean {
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-  if (!timePattern.test(openTime) || !timePattern.test(closeTime)) return true;
+  if (!timePattern.test(openTime) || !timePattern.test(closeTime)) return false;
 
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -11,7 +11,7 @@ export function isStoreOpen(openTime: string, closeTime: string): boolean {
 
   if (startMinutes === endMinutes) return true;
   if (startMinutes < endMinutes) {
-    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
   }
 
   return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
