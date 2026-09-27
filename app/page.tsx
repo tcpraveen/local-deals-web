@@ -1,429 +1,419 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import Link from 'next/link';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  MapPin, 
+  Navigation, 
+  Phone, 
+  Clock, 
+  Tag, 
+  Search, 
+  MessageSquare, 
+  ExternalLink 
+} from 'lucide-react';
+import { calculateDistanceKm, formatDistance, Coordinates } from '@/lib/geo';
 
 interface Deal {
-  id: number;
-  title: string;
-  business: string;
-  logo_url?: string;
-  discount: string;
-  original_price?: number | string;
-  deal_price?: number | string;
+  id: string;
+  shop_name: string;
   category: string;
-  location?: string;
-  phone?: string;
-  expires_at?: string;
-  opening_time?: string;
-  closing_time?: string;
-  image: string;
-  description: string;
-  inquiries_count?: number;
-  is_verified_merchant?: boolean;
-  store_address?: string;
-  google_maps_url?: string;
-  rating?: number;
-  review_count?: number;
+  area: string;
+  title: string;
+  discount_badge: string;
+  original_price: number;
+  discount_price: number;
+  open_time: string; // "09:00"
+  close_time: string; // "21:00"
+  valid_until: string; // ISO date string
+  phone: string; // Without plus sign, e.g. "919876543210"
+  lat: number;
+  lng: number;
+  image_url: string;
 }
 
-const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
-const LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road', 'North Authoor', 'Bryant Nagar'];
-
-export function isStoreOpen(openingTime?: string, closingTime?: string): boolean {
-  if (!openingTime || !closingTime) return true;
-  try {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const [openH, openM] = openingTime.split(':').map(Number);
-    const [closeH, closeM] = closingTime.split(':').map(Number);
-
-    const startMinutes = openH * 60 + (openM || 0);
-    const endMinutes = closeH * 60 + (closeM || 0);
-
-    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-  } catch {
-    return true;
+// Sample dataset with local coordinates
+const INITIAL_DEALS: Deal[] = [
+  {
+    id: '1',
+    shop_name: 'Metro Footwear',
+    category: 'Fashion',
+    area: 'Main Bazaar',
+    title: 'Flat 30% Off All Casual & Formal Shoes',
+    discount_badge: '30% OFF',
+    original_price: 1499,
+    discount_price: 1049,
+    open_time: '09:30',
+    close_time: '21:30',
+    valid_until: '2026-10-31',
+    phone: '919876543210',
+    lat: 8.8052,
+    lng: 78.1450,
+    image_url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: '2',
+    shop_name: 'Apex Electronics & Service',
+    category: 'Services',
+    area: 'Anna Nagar',
+    title: 'Comprehensive AC Deep Cleaning & Gas Check',
+    discount_badge: '35% OFF',
+    original_price: 1200,
+    discount_price: 780,
+    open_time: '09:00',
+    close_time: '20:00',
+    valid_until: '2026-09-30',
+    phone: '919876543211',
+    lat: 8.8120,
+    lng: 78.1520,
+    image_url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: '3',
+    shop_name: 'Boutique Trends',
+    category: 'Fashion',
+    area: 'Beach Road',
+    title: 'Exclusive Festive Saree & Kurti Sets',
+    discount_badge: '25% OFF',
+    original_price: 2500,
+    discount_price: 1875,
+    open_time: '10:00',
+    close_time: '22:00',
+    valid_until: '2026-09-15', // Expired check
+    phone: '919876543212',
+    lat: 8.7980,
+    lng: 78.1610,
+    image_url: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80'
   }
-}
+];
 
-export default function Storefront() {
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedLocation, setSelectedLocation] = useState('All');
+export default function HyperlocalDealsHub() {
+  const [deals] = useState<Deal[]>(INITIAL_DEALS);
   const [searchQuery, setSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<number[]>([]);
-  const [onlyVerified, setOnlyVerified] = useState(false);
-  const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedRadiusKm, setSelectedRadiusKm] = useState<number | null>(null);
 
+  // User Geolocation state
+  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  // Load saved location on mount
   useEffect(() => {
-    fetchDeals();
-
-    const saved = localStorage.getItem('ldh_favorites');
-    if (saved) {
+    const cached = localStorage.getItem('ldh_user_coords');
+    if (cached) {
       try {
-        setFavorites(JSON.parse(saved));
+        setUserLocation(JSON.parse(cached));
       } catch (e) {
-        console.error('Failed to parse favorites:', e);
+        localStorage.removeItem('ldh_user_coords');
       }
     }
   }, []);
 
-  const fetchDeals = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('deals')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setDeals(data || []);
-    } catch (err: any) {
-      console.error('Error fetching deals:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleFavorite = (id: number) => {
-    setFavorites((prev) => {
-      const updated = prev.includes(id) ? prev.filter((favId) => favId !== id) : [...prev, id];
-      localStorage.setItem('ldh_favorites', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const handleClaimVoucher = async (deal: Deal) => {
-    const voucherCode = `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    try {
-      await supabase
-        .from('deals')
-        .update({ inquiries_count: (deal.inquiries_count || 0) + 1 })
-        .eq('id', deal.id);
-    } catch (err) {
-      console.error('Error logging claim telemetry:', err);
-    }
-
-    const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
-    const message = encodeURIComponent(
-      `Hello ${deal.business}!\nI want to claim your offer from Local Deals Hub:\n\n` +
-        `🏷️ Offer: *${deal.title}*\n` +
-        `🎟️ Voucher Code: *${voucherCode}*\n` +
-        `💰 Deal Price: ₹${deal.deal_price || deal.discount}\n\n` +
-        `Please confirm availability.`
-    );
-
-    window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
-  };
-
-  const handleOpenMap = (deal: Deal) => {
-    if (deal.google_maps_url) {
-      window.open(deal.google_maps_url, '_blank');
+  // Geolocation trigger
+  const requestLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser.');
       return;
     }
-    const query = encodeURIComponent(
-      `${deal.business}, ${deal.store_address || ''} ${deal.location || 'Thoothukudi'}`
+
+    setLocating(true);
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords: Coordinates = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        setUserLocation(coords);
+        localStorage.setItem('ldh_user_coords', JSON.stringify(coords));
+        setLocating(false);
+      },
+      (err) => {
+        setLocationError('Unable to retrieve location. Please check browser permissions.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     );
-    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
   };
 
-  const filteredDeals = deals.filter((deal) => {
-    const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
-    const matchesLocation = selectedLocation === 'All' || deal.location === selectedLocation;
-    const matchesVerified = !onlyVerified || Boolean(deal.is_verified_merchant);
-    const matchesSaved = !showSavedOnly || favorites.includes(deal.id);
-    const matchesSearch =
-      deal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      deal.business.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (deal.location && deal.location.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Helper: Shop Open status calculation
+  const isShopOpen = (openStr: string, closeStr: string) => {
+    const now = new Date();
+    const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    return matchesCategory && matchesLocation && matchesVerified && matchesSaved && matchesSearch;
-  });
+    const [openH, openM] = openStr.split(':').map(Number);
+    const [closeH, closeM] = closeStr.split(':').map(Number);
+
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    return currentMins >= openMins && currentMins < closeMins;
+  };
+
+  // Helper: Deal Expiration calculation
+  const isDealExpired = (validUntil: string) => {
+    return new Date(validUntil).getTime() < new Date().setHours(0, 0, 0, 0);
+  };
+
+  // Process and sort deals
+  const processedDeals = useMemo(() => {
+    return deals
+      .map((deal) => {
+        let distanceKm: number | null = null;
+        if (userLocation) {
+          distanceKm = calculateDistanceKm(userLocation, { lat: deal.lat, lng: deal.lng });
+        }
+        return {
+          ...deal,
+          distanceKm,
+          isOpen: isShopOpen(deal.open_time, deal.close_time),
+          isExpired: isDealExpired(deal.valid_until),
+        };
+      })
+      .filter((deal) => {
+        // Search filter
+        const matchesSearch = 
+          deal.shop_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          deal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          deal.area.toLowerCase().includes(searchQuery.toLowerCase());
+
+        // Category filter
+        const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
+
+        // Distance Radius filter
+        const matchesRadius = selectedRadiusKm === null || (deal.distanceKm !== null && deal.distanceKm <= selectedRadiusKm);
+
+        return matchesSearch && matchesCategory && matchesRadius;
+      })
+      .sort((a, b) => {
+        // Sort closest first if distance exists
+        if (a.distanceKm !== null && b.distanceKm !== null) {
+          return a.distanceKm - b.distanceKm;
+        }
+        return 0;
+      });
+  }, [deals, userLocation, searchQuery, selectedCategory, selectedRadiusKm]);
+
+  // Voucher claim action (Generates LDH voucher and opens WhatsApp)
+  const handleClaimVoucher = (deal: typeof processedDeals[0]) => {
+    if (deal.isExpired) return;
+
+    const voucherCode = `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
+    const text = encodeURIComponent(
+      `Hello ${deal.shop_name}! I would like to claim the offer: "${deal.title}" via Local Deals Hub.\n\nVoucher Code: *${voucherCode}*\nStore: ${deal.area}`
+    );
+    window.open(`https://wa.me/${deal.phone}?text=${text}`, '_blank');
+  };
+
+  const categories = ['All', 'Fashion', 'Services', 'Dining', 'Retail'];
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white">
-      {/* Navigation Header */}
-      <header className="border-b border-slate-800 bg-[#0a101d]/90 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl">🏷️</span>
-            <span className="font-bold text-white tracking-tight text-sm sm:text-base">
-              Local Deals Hub
+    <main className="min-h-screen bg-zinc-950 text-zinc-100 pb-20">
+      {/* Top Header */}
+      <header className="border-b border-zinc-900 bg-zinc-950/80 sticky top-0 z-30 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl font-extrabold tracking-tight text-white">
+              Local<span className="text-emerald-400">Deals</span>Hub
             </span>
-          </Link>
+          </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => setShowSavedOnly((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
-                showSavedOnly
-                  ? 'bg-rose-500/20 border-rose-500/50 text-rose-400'
-                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
-              }`}
-            >
-              <span>❤️</span>
-              <span>{favorites.length}</span>
-            </button>
-
-            <Link
-              href="/merchant"
-              className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm px-3.5 py-1.5 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center gap-1.5"
-            >
-              <span>🏪</span>
-              <span>Merchant Portal</span>
-            </Link>
+          <div className="flex items-center gap-3">
+            {userLocation ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                GPS Active
+              </span>
+            ) : (
+              <button
+                onClick={requestLocation}
+                disabled={locating}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition"
+              >
+                <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+                {locating ? 'Locating...' : 'Enable Exact Distance'}
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
-        {/* Hero Headline */}
-        <section className="text-center space-y-3 max-w-3xl mx-auto">
-          <span className="inline-block px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-bold uppercase tracking-wider">
-            100% Genuine Local Offers
-          </span>
-          <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
-            Discover Verified Local Discounts & Services
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-            Shop directly from verified neighborhood businesses with interactive map directions and
-            instant WhatsApp voucher redemption.
-          </p>
-        </section>
+      {/* Control Bar: Search, Category Chips & Distance Radii */}
+      <section className="max-w-6xl mx-auto px-4 pt-6 space-y-4">
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-3 w-4 h-4 text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search stores, offers, or neighborhoods..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition"
+          />
+        </div>
 
-        {/* Search and Filters Bar */}
-        <section className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-center gap-2.5 max-w-2xl mx-auto">
-            <input
-              type="text"
-              placeholder="Search deals, stores, or areas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 shadow-inner"
-            />
-            <button
-              onClick={() => setOnlyVerified((prev) => !prev)}
-              className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 flex-shrink-0 ${
-                onlyVerified
-                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                  : 'bg-[#0e1626] border-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              ✓ Verified
-            </button>
-          </div>
-
-          {/* Categories Filter Pills */}
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-            {CATEGORIES.map((category) => (
+        {/* Filter Rows */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Categories */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {categories.map((cat) => (
               <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
-                  selectedCategory === category
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                    : 'bg-[#0e1626] border border-slate-800 text-slate-400 hover:text-white'
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
+                  selectedCategory === cat
+                    ? 'bg-white text-black font-semibold'
+                    : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                 }`}
               >
-                {category}
+                {cat}
               </button>
             ))}
           </div>
 
-          {/* Locations Filter Pills */}
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-slate-500 font-medium mr-1">Area:</span>
-            {LOCATIONS.map((loc) => (
-              <button
-                key={loc}
-                onClick={() => setSelectedLocation(loc)}
-                className={`px-3 py-1 rounded-lg text-[11px] font-medium transition ${
-                  selectedLocation === loc
-                    ? 'bg-slate-700 text-white'
-                    : 'bg-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {loc}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* Deal Cards Grid */}
-        <section>
-          {loading ? (
-            <div className="py-20 text-center text-slate-500 text-xs sm:text-sm">
-              Finding active neighborhood discounts...
-            </div>
-          ) : filteredDeals.length === 0 ? (
-            <div className="py-20 text-center space-y-3 bg-[#0e1626]/40 border border-slate-800 rounded-3xl p-8">
-              <p className="text-slate-400 text-sm">No promotions match your filter criteria.</p>
-              <button
-                onClick={() => {
-                  setSelectedCategory('All');
-                  setSelectedLocation('All');
-                  setSearchQuery('');
-                  setOnlyVerified(false);
-                  setShowSavedOnly(false);
-                }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition"
-              >
-                Reset All Filters
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredDeals.map((deal) => {
-                const open = isStoreOpen(deal.opening_time, deal.closing_time);
-                const isFav = favorites.includes(deal.id);
-
-                return (
-                  <div
-                    key={deal.id}
-                    className="bg-[#0e1626] border border-slate-800 rounded-3xl overflow-hidden flex flex-col shadow-xl hover:border-slate-700 transition group"
-                  >
-                    {/* Media Header */}
-                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
-                      <img
-                        src={deal.image}
-                        alt={deal.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                      />
-
-                      {/* Top Badges */}
-                      <div className="absolute top-3 left-3 flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-semibold border border-white/10">
-                          {deal.category}
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border backdrop-blur-md ${
-                            open
-                              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                              : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                          }`}
-                        >
-                          {open ? '🟢 Open' : '🔴 Closed'}
-                        </span>
-                      </div>
-
-                      <div className="absolute top-3 right-3 flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-rose-600 text-white text-[11px] font-black shadow-lg">
-                          {deal.discount}
-                        </span>
-                      </div>
-
-                      {/* Favorite Button */}
-                      <button
-                        onClick={() => toggleFavorite(deal.id)}
-                        className={`absolute bottom-3 right-3 p-2 rounded-full backdrop-blur-md transition ${
-                          isFav
-                            ? 'bg-rose-600 text-white'
-                            : 'bg-black/60 text-slate-300 hover:text-white'
-                        }`}
-                      >
-                        {isFav ? '❤️' : '🤍'}
-                      </button>
-                    </div>
-
-                    {/* Content Section */}
-                    <div className="p-5 flex flex-col flex-1 justify-between space-y-4">
-                      <div className="space-y-2">
-                        {/* Merchant Identity & Map Trigger */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <img
-                              src={
-                                deal.logo_url ||
-                                'https://cdn-icons-png.flaticon.com/512/869/869636.png'
-                              }
-                              alt={deal.business}
-                              className="w-6 h-6 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                            />
-                            <span className="text-xs font-bold text-slate-300 truncate">
-                              {deal.business}
-                            </span>
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold flex-shrink-0">
-                              ✓ Verified
-                            </span>
-                          </div>
-
-                          <button
-                            onClick={() => handleOpenMap(deal)}
-                            className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 flex-shrink-0"
-                          >
-                            📍 Map
-                          </button>
-                        </div>
-
-                        {/* Ratings */}
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className="text-amber-400 font-bold">
-                            ★ {deal.rating || '4.8'}
-                          </span>
-                          <span className="text-slate-500 text-[11px]">
-                            ({deal.review_count || 12} reviews)
-                          </span>
-                        </div>
-
-                        {/* Title & Description */}
-                        <div>
-                          <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition leading-snug">
-                            {deal.title}
-                          </h3>
-                          <p className="text-[11px] text-slate-400 line-clamp-2 mt-1">
-                            {deal.description ||
-                              'Visit the store counter or claim voucher on WhatsApp to redeem offer.'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Pricing & Claim Actions */}
-                      <div className="space-y-3 pt-2 border-t border-slate-800/80">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-base font-black text-emerald-400">
-                            ₹{deal.deal_price || deal.original_price || 'Special'}
-                          </span>
-                          {deal.original_price && deal.deal_price && (
-                            <span className="text-xs text-slate-500 line-through">
-                              ₹{deal.original_price}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                          <span>🏬</span>
-                          <span>
-                            {deal.store_address || `${deal.location || 'Local area'}, Thoothukudi`}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            onClick={() => handleClaimVoucher(deal)}
-                            className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition flex items-center justify-center gap-1.5"
-                          >
-                            <span>Claim Voucher</span>
-                            <span>→</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Radius Chips (Active only when location is detected) */}
+          {userLocation && (
+            <div className="flex items-center gap-1.5 self-start sm:self-auto">
+              <span className="text-xs text-zinc-500 mr-1">Radius:</span>
+              {[
+                { label: 'All', value: null },
+                { label: '< 2 km', value: 2 },
+                { label: '< 5 km', value: 5 },
+                { label: '< 10 km', value: 10 },
+              ].map((chip) => (
+                <button
+                  key={chip.label}
+                  onClick={() => setSelectedRadiusKm(chip.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                    selectedRadiusKm === chip.value
+                      ? 'bg-emerald-500 text-black font-semibold'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
             </div>
           )}
-        </section>
-      </main>
+        </div>
 
-      <footer className="border-t border-slate-900 py-8 text-center text-xs text-slate-600">
-        Local Deals Hub • Bridging neighborhood merchants with direct digital customers
-      </footer>
-    </div>
+        {locationError && (
+          <p className="text-xs text-amber-400/90">{locationError}</p>
+        )}
+      </section>
+
+      {/* Deals Listing Grid */}
+      <section className="max-w-6xl mx-auto px-4 mt-6">
+        {processedDeals.length === 0 ? (
+          <div className="text-center py-20 bg-zinc-900/40 rounded-2xl border border-zinc-900">
+            <Tag className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+            <p className="text-sm text-zinc-400">No matching deals found within this radius or category.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {processedDeals.map((deal) => (
+              <article
+                key={deal.id}
+                className="group flex flex-col justify-between rounded-2xl bg-zinc-900/70 border border-zinc-800/80 overflow-hidden hover:border-zinc-700 transition"
+              >
+                {/* Visual Header with Badges */}
+                <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-800">
+                  <img
+                    src={deal.image_url}
+                    alt={deal.shop_name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                  />
+
+                  {/* Primary Discount Tag */}
+                  <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg text-xs font-black tracking-wide bg-red-600 text-white shadow-md">
+                    {deal.discount_badge}
+                  </span>
+
+                  {/* Operational Status Badges */}
+                  <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
+                    {/* Expiry Badge */}
+                    {deal.isExpired ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950/80 text-red-300 border border-red-800 backdrop-blur-md">
+                        Offer Ended
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 backdrop-blur-md">
+                        ⚡ Active Offer
+                      </span>
+                    )}
+
+                    {/* Shop Operating Hours Badge */}
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-black/60 text-zinc-300 backdrop-blur-md border border-zinc-700/50">
+                      <span className={`w-1.5 h-1.5 rounded-full ${deal.isOpen ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                      {deal.isOpen ? 'Shop Open' : 'Closed'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Content Details */}
+                <div className="p-4 flex-1 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                      <span className="font-semibold text-emerald-400">{deal.category}</span>
+                      {deal.distanceKm !== null && (
+                        <span className="font-medium text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded">
+                          {formatDistance(deal.distanceKm)}
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="font-bold text-white text-base leading-snug mb-1">
+                      {deal.title}
+                    </h3>
+                    
+                    <p className="text-xs text-zinc-400 flex items-center gap-1 mb-3">
+                      <MapPin className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                      {deal.shop_name} • {deal.area}
+                    </p>
+                  </div>
+
+                  {/* Pricing and Operating Meta */}
+                  <div className="pt-3 border-t border-zinc-800/80">
+                    <div className="flex items-baseline gap-2 mb-3">
+                      <span className="text-lg font-bold text-white">₹{deal.discount_price}</span>
+                      <span className="text-xs text-zinc-500 line-through">₹{deal.original_price}</span>
+                    </div>
+
+                    {/* Conversion Action Bar */}
+                    <div className="grid grid-cols-5 gap-2">
+                      {/* WhatsApp Voucher Button */}
+                      <button
+                        onClick={() => handleClaimVoucher(deal)}
+                        disabled={deal.isExpired}
+                        className={`col-span-4 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-semibold text-xs transition ${
+                          deal.isExpired
+                            ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-950/40'
+                        }`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        {deal.isExpired ? 'Offer Expired' : 'Claim Voucher'}
+                      </button>
+
+                      {/* Map Navigation Link */}
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${deal.lat},${deal.lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="col-span-1 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/50 transition"
+                        title="Get Directions"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
