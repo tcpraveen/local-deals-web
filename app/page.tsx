@@ -20,26 +20,6 @@ export default function Storefront() {
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [locationStatus, setLocationStatus] = useState<'checking' | 'available' | 'fallback'>('fallback');
 
-  useEffect(() => {
-    fetchDeals();
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => setLocationStatus('available'),
-        () => setLocationStatus('fallback'),
-        { timeout: 5000 }
-      );
-    }
-
-    const saved = localStorage.getItem('ldh_favorites');
-    if (saved) {
-      try {
-        setFavorites(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse favorites:', e);
-      }
-    }
-  }, []);
-
   async function fetchDeals() {
     if (!isSupabaseConfigured) {
       setDeals(SAMPLE_DEALS.filter(isDealActive));
@@ -63,6 +43,33 @@ export default function Storefront() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchDeals();
+    });
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        () => setLocationStatus('available'),
+        () => setLocationStatus('fallback'),
+        { timeout: 5000 }
+      );
+    }
+
+    const saved = localStorage.getItem('ldh_favorites');
+    if (saved) {
+      queueMicrotask(() => {
+        try {
+          const parsed: unknown = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.every((id) => typeof id === 'number')) {
+            setFavorites(parsed);
+          }
+        } catch (error) {
+          console.error('Failed to parse favorites:', error);
+        }
+      });
+    }
+  }, []);
 
   const toggleFavorite = (id: number) => {
     setFavorites((prev) => {
@@ -371,7 +378,7 @@ export default function Storefront() {
                       {/* Pricing & Claim Actions */}
                       <div className="space-y-3 pt-2 border-t border-slate-800/80">
                         {(deal.scarcity_text || deal.scarcityText) && (
-                          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">
+                          <div className="inline-flex rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-400 font-medium text-xs">
                             {deal.scarcity_text || deal.scarcityText}
                           </div>
                         )}

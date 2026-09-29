@@ -47,24 +47,63 @@ export const SAMPLE_DEALS: Deal[] = [
     closing_time: '21:00',
     image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=900&q=80',
     description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
-    scarcity_text: '🔥 Sample offer',
+    scarcityText: '🔥 Only 4 vouchers left today',
     lat: 8.8053,
     lng: 78.145,
+  },
+  {
+    id: -2,
+    title: 'Electrical service and appliance care',
+    business: 'Cool Care Electricals',
+    discount: 'Special Offer',
+    category: 'Services',
+    location: 'Anna Nagar',
+    phone: '',
+    opening_time: '09:00',
+    closing_time: '21:00',
+    image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=900&q=80',
+    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
+    scarcityText: '⚡ Claimed by 14 people nearby',
+  },
+  {
+    id: -3,
+    title: 'Classic Men Trends special offer',
+    business: 'Classic Men Trends',
+    discount: 'Special Offer',
+    category: 'Fashion',
+    location: 'Beach Road',
+    phone: '',
+    opening_time: '09:00',
+    closing_time: '21:00',
+    image: 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80',
+    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
+    scarcityText: '⏳ Deal ends Sunday',
   },
 ];
 
 export function normalizeDeal(record: Record<string, unknown>): Deal {
+  const rawBusiness = String(record.business || record.shop_name || 'Local merchant');
+  const business = rawBusiness.toLowerCase() === 'mj taders' ? 'MJ TRADERS' : rawBusiness;
+  const scarcityByBusiness: Record<string, string> = {
+    'mj traders': '🔥 Only 4 vouchers left today',
+    'cool care electricals': '⚡ Claimed by 14 people nearby',
+    'classic men trends': '⏳ Deal ends Sunday',
+  };
   return {
     ...record,
     id: Number(record.id),
     title: String(record.title || 'Local offer'),
-    business: String(record.business || record.shop_name || 'Local merchant'),
+    business,
     discount: String(record.discount || record.discount_badge || 'Special Offer'),
     deal_price: (record.deal_price ?? record.discount_price) as Deal['deal_price'],
     location: String(record.location || record.area || ''),
     opening_time: String(record.opening_time || record.open_time || '09:00'),
     closing_time: String(record.closing_time || record.close_time || '21:00'),
-    scarcityText: String(record.scarcityText || record.scarcity_text || '') || undefined,
+    scarcityText: scarcityByBusiness[business.toLowerCase()] || String(
+      record.scarcityText ||
+      record.scarcity_text ||
+      ''
+    ) || undefined,
   } as Deal;
 }
 

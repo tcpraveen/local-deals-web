@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
@@ -16,6 +16,14 @@ const LOCATIONS = [
   { name: 'North Authoor', lat: 8.8053, lng: 78.145 },
   { name: 'Bryant Nagar', lat: 8.799, lng: 78.135 },
 ];
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return String(error);
+}
 
 export default function MerchantPortal() {
   const [user, setUser] = useState<User | null>(null);
@@ -85,32 +93,7 @@ export default function MerchantPortal() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Camera QR Scanner Lifecycle
-  useEffect(() => {
-    if (isScannerOpen) {
-      const scanner = new Html5QrcodeScanner(
-        'reader',
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        false
-      );
-      scannerRef.current = scanner;
-      scanner.render(
-        (decodedText) => {
-          handleVoucherCodeRedeem(decodedText);
-          scanner.clear();
-        },
-        () => {}
-      );
-
-      return () => {
-        if (scannerRef.current) {
-          scannerRef.current.clear().catch(() => {});
-        }
-      };
-    }
-  }, [isScannerOpen]);
-
-  async function handleVoucherCodeRedeem(code: string) {
+  const handleVoucherCodeRedeem = useCallback(async (code: string) => {
     const normalizedCode = code.trim().toUpperCase();
     setRedeemSuccess(false);
     setRedemptionError('');
@@ -119,7 +102,6 @@ export default function MerchantPortal() {
       return;
     }
 
-    setRedemptionError('');
     setScannedResult(normalizedCode);
     const { data: existing, error: lookupError } = await supabase
       .from('redemptions')
@@ -148,7 +130,32 @@ export default function MerchantPortal() {
     setVoucherCode('');
     setRedeemSuccess(true);
     setRedemptionCount((count) => count + 1);
-  }
+  }, [user]);
+
+  // Camera QR Scanner Lifecycle
+  useEffect(() => {
+    if (isScannerOpen) {
+      const scanner = new Html5QrcodeScanner(
+        'reader',
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        false
+      );
+      scannerRef.current = scanner;
+      scanner.render(
+        (decodedText) => {
+          handleVoucherCodeRedeem(decodedText);
+          scanner.clear();
+        },
+        () => {}
+      );
+
+      return () => {
+        if (scannerRef.current) {
+          scannerRef.current.clear().catch(() => {});
+        }
+      };
+    }
+  }, [isScannerOpen, handleVoucherCodeRedeem]);
 
   async function fetchMyDeals(userId: string) {
     try {
@@ -169,8 +176,8 @@ export default function MerchantPortal() {
         console.error('Error loading redemption analytics:', redemptionCountError.message);
       }
       setRedemptionCount(count || 0);
-    } catch (err: any) {
-      console.error('Error fetching merchant deals:', err.message);
+    } catch (err: unknown) {
+      console.error('Error fetching merchant deals:', getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -189,8 +196,8 @@ export default function MerchantPortal() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
-    } catch (err: any) {
-      alert(`Authentication failed: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Authentication failed: ${getErrorMessage(err)}`);
     } finally {
       setAuthLoading(false);
     }
@@ -236,8 +243,8 @@ export default function MerchantPortal() {
       } else {
         setFormData((prev) => ({ ...prev, logo_url: data.publicUrl }));
       }
-    } catch (err: any) {
-      alert(`Upload error: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Upload error: ${getErrorMessage(err)}`);
     } finally {
       if (type === 'deal') setUploading(false);
       else setLogoUploading(false);
@@ -279,7 +286,7 @@ export default function MerchantPortal() {
       setSubmitting(true);
       const cleanPhone = (formData.phone || '').replace(/[^0-9]/g, '');
 
-      const payload: any = {
+      const payload = {
         title: formData.title,
         business: formData.business,
         logo_url: formData.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
@@ -313,8 +320,8 @@ export default function MerchantPortal() {
       setIsModalOpen(false);
       setEditingDealId(null);
       await fetchMyDeals(user.id);
-    } catch (err: any) {
-      alert(`Error saving offer: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Error saving offer: ${getErrorMessage(err)}`);
     } finally {
       setSubmitting(false);
     }
@@ -326,8 +333,8 @@ export default function MerchantPortal() {
       const { error } = await supabase.from('deals').delete().eq('id', id);
       if (error) throw error;
       if (user) await fetchMyDeals(user.id);
-    } catch (err: any) {
-      alert(`Deletion error: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Deletion error: ${getErrorMessage(err)}`);
     }
   };
 
