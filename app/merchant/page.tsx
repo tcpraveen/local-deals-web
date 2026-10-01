@@ -6,7 +6,7 @@ import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Deal } from '@/lib/deals';
+import { Deal, SAMPLE_DEALS } from '@/lib/deals';
 
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
@@ -25,6 +25,13 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error('Request timed out. Please try again.')), milliseconds);
+    promise.then(resolve, reject).finally(() => clearTimeout(timeoutId));
+  });
+}
+
 export default function MerchantPortal() {
   const [user, setUser] = useState<User | null>(null);
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
@@ -32,9 +39,12 @@ export default function MerchantPortal() {
 
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isResetView, setIsResetView] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Modals & Scanner States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -186,18 +196,48 @@ export default function MerchantPortal() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
+    setAuthMessage(null);
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await withTimeout(supabase.auth.signUp({ email, password }), 4000);
         if (error) throw error;
-        alert('Registration complete! Please sign in with your credentials.');
+        setAuthMessage({ type: 'success', text: 'Registration complete! Please sign in with your credentials.' });
         setIsSignUp(false);
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 4000);
         if (error) throw error;
       }
     } catch (err: unknown) {
-      alert(`Authentication failed: ${getErrorMessage(err)}`);
+      const message = getErrorMessage(err);
+      const isNetworkFailure = /load failed|failed to fetch|network|timed out/i.test(message);
+      setAuthMessage({
+        type: 'error',
+        text: isNetworkFailure
+          ? 'Unable to reach the sign-in service right now. Check your connection or preview the dashboard in demo mode.'
+          : `Sign-in failed: ${message}`,
+      });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAuthLoading(true);
+    setAuthMessage(null);
+    try {
+      const redirectTo = `${typeof window !== 'undefined' ? window.location.origin : ''}/merchant`;
+      const { error } = await withTimeout(
+        supabase.auth.resetPasswordForEmail(email, { redirectTo }),
+        4000
+      );
+      if (error) throw error;
+      setAuthMessage({ type: 'success', text: 'Password reset link sent to your email.' });
+    } catch (error: unknown) {
+      setAuthMessage({
+        type: 'error',
+        text: `Unable to send reset link: ${getErrorMessage(error)}`,
+      });
     } finally {
       setAuthLoading(false);
     }
@@ -360,7 +400,7 @@ export default function MerchantPortal() {
     totalInquiries || 1,
   ];
 
-  if (!user) {
+  if (!user && !isDemoMode) {
     return (
       <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col justify-between">
         <header className="border-b border-slate-800 bg-[#0a101d]/80 px-4 sm:px-6 py-4 flex items-center justify-between">
@@ -376,13 +416,59 @@ export default function MerchantPortal() {
           <div className="bg-[#0e1626] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             <div className="text-center space-y-2">
               <span className="text-3xl">🏬</span>
-              <h1 className="text-xl sm:text-2xl font-bold text-white">Merchant Partner Sign In</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-white">
+                {isResetView ? 'Reset Merchant Password' : 'Merchant Partner Sign In'}
+              </h1>
               <p className="text-xs text-slate-400">
                 Publish promotions, scan customer voucher codes, and track in-store analytics.
               </p>
             </div>
 
-            <form onSubmit={handleAuth} className="space-y-4 text-xs sm:text-sm">
+            {authMessage && (
+              <div
+                role="status"
+                className={`rounded-xl border px-3 py-2.5 text-xs ${
+                  authMessage.type === 'success'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                }`}
+              >
+                {authMessage.text}
+              </div>
+            )}
+
+            {isResetView ? (
+              <form onSubmit={handlePasswordReset} className="space-y-4 text-xs sm:text-sm">
+                <div>
+                  <label className="block text-slate-400 mb-1">Business Email</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="store@domain.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold rounded-xl transition shadow-lg shadow-blue-500/25"
+                >
+                  {authLoading ? 'Sending...' : 'Send Reset Link'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResetView(false);
+                    setAuthMessage(null);
+                  }}
+                  className="w-full text-xs text-slate-400 hover:text-white"
+                >
+                  Back to sign in
+                </button>
+              </form>
+            ) : <form onSubmit={handleAuth} className="space-y-4 text-xs sm:text-sm">
               <div>
                 <label className="block text-slate-400 mb-1">Business Email</label>
                 <input
@@ -405,6 +491,18 @@ export default function MerchantPortal() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-[#080d16] border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
                 />
+                {!isSignUp && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetView(true);
+                      setAuthMessage(null);
+                    }}
+                    className="mt-2 text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
 
               <button
@@ -414,16 +512,36 @@ export default function MerchantPortal() {
               >
                 {authLoading ? 'Verifying...' : isSignUp ? 'Register Business Account' : 'Access Merchant Workspace'}
               </button>
-            </form>
+            </form>}
 
-            <div className="text-center">
+            {!isResetView && <div className="text-center">
               <button
                 type="button"
-                onClick={() => setIsSignUp(!isSignUp)}
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setAuthMessage(null);
+                }}
                 className="text-xs text-blue-400 hover:underline"
               >
                 {isSignUp ? 'Already registered? Sign In' : 'New store owner? Create merchant account'}
               </button>
+            </div>}
+
+            <div className="border-t border-slate-800 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDemoMode(true);
+                  setMyDeals(SAMPLE_DEALS);
+                  setAuthMessage(null);
+                }}
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-800/70 py-2.5 text-xs font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-700"
+              >
+                Enter Demo Dashboard
+              </button>
+              <p className="mt-2 text-center text-[10px] text-zinc-500">
+                Preview merchant verification and QR standee screens without signing in.
+              </p>
             </div>
           </div>
         </div>
@@ -441,7 +559,7 @@ export default function MerchantPortal() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center justify-between">
             <span className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-              🏬 Merchant Central
+            🏬 Merchant Central {isDemoMode && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">Demo</span>}
             </span>
             <Link
               href="/"
@@ -510,10 +628,17 @@ export default function MerchantPortal() {
               + Create Promotion
             </button>
             <button
-              onClick={handleSignOut}
+              onClick={() => {
+                if (isDemoMode) {
+                  setIsDemoMode(false);
+                  setMyDeals([]);
+                  return;
+                }
+                handleSignOut();
+              }}
               className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded-xl transition"
             >
-              Sign Out
+              {isDemoMode ? 'Exit Demo' : 'Sign Out'}
             </button>
           </div>
         </div>
