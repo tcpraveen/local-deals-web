@@ -32,6 +32,33 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   });
 }
 
+function parseCoordinates(value: string): { lat: number; lng: number } | null {
+  const patterns = [
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /[?&](?:q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = value.trim().match(pattern);
+    if (!match) continue;
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    if (
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180
+    ) {
+      return { lat, lng };
+    }
+  }
+
+  return null;
+}
+
 export default function MerchantPortal() {
   const [user, setUser] = useState<User | null>(null);
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
@@ -51,6 +78,9 @@ export default function MerchantPortal() {
   const [uploading, setUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationCoordinatesLocked, setLocationCoordinatesLocked] = useState(false);
+  const [locationError, setLocationError] = useState('');
   const [qrDeal, setQrDeal] = useState<Deal | null>(null);
 
   // Scanner State
@@ -80,8 +110,6 @@ export default function MerchantPortal() {
     is_featured: false,
     store_address: '',
     google_maps_url: '',
-    lat: 8.8053,
-    lng: 78.145,
   });
 
   useEffect(() => {
@@ -308,13 +336,56 @@ export default function MerchantPortal() {
   };
 
   const handleLocationChange = (locName: string) => {
-    const found = LOCATIONS.find((l) => l.name === locName);
+    setLocationCoordinatesLocked(false);
     setFormData((prev) => ({
       ...prev,
       location: locName,
-      lat: found?.lat || 8.8053,
-      lng: found?.lng || 78.145,
     }));
+  };
+
+  const handleMapsLocationChange = (value: string) => {
+    const coordinates = parseCoordinates(value);
+    setLocationError('');
+    setLocationCoordinatesLocked(Boolean(coordinates));
+    setFormData((prev) => ({
+      ...prev,
+      google_maps_url: value,
+      lat: coordinates?.lat,
+      lng: coordinates?.lng,
+    }));
+  };
+
+  const handleDetectShopLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Location detection is not supported by this browser.');
+      return;
+    }
+
+    setIsDetectingLocation(true);
+    setLocationError('');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setFormData((prev) => ({
+          ...prev,
+          lat: coords.latitude,
+          lng: coords.longitude,
+          google_maps_url: `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`,
+        }));
+        setLocationCoordinatesLocked(true);
+        setIsDetectingLocation(false);
+      },
+      (error) => {
+        setLocationError(
+          error.code === error.PERMISSION_DENIED
+            ? 'Location permission was denied. Enable it in your browser or paste a Maps link.'
+            : error.code === error.TIMEOUT
+              ? 'Could not detect your location in time. Please try again.'
+              : 'Could not detect your location. Please try again or paste a Maps link.'
+        );
+        setIsDetectingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleSaveDeal = async (e: React.FormEvent) => {
@@ -322,6 +393,10 @@ export default function MerchantPortal() {
     if (!user) return;
     if (!formData.title || !formData.business) {
       alert('Title and Business name are required.');
+      return;
+    }
+    if (typeof formData.lat !== 'number' || typeof formData.lng !== 'number') {
+      alert('Paste a Google Maps link containing coordinates or detect your shop location before saving.');
       return;
     }
 
@@ -345,8 +420,8 @@ export default function MerchantPortal() {
         is_featured: Boolean(formData.is_featured),
         store_address: formData.store_address || '',
         google_maps_url: formData.google_maps_url || '',
-        lat: formData.lat || 8.8053,
-        lng: formData.lng || 78.145,
+        lat: formData.lat,
+        lng: formData.lng,
         image: formData.image || null,
         description: formData.description || '',
         user_id: user.id,
@@ -384,6 +459,10 @@ export default function MerchantPortal() {
   const openEdit = (deal: Deal) => {
     setEditingDealId(deal.id);
     setFormData({ ...deal });
+    setLocationCoordinatesLocked(
+      typeof deal.lat === 'number' && typeof deal.lng === 'number'
+    );
+    setLocationError('');
     setIsModalOpen(true);
   };
 
@@ -577,6 +656,8 @@ export default function MerchantPortal() {
             <button
               onClick={() => {
                 setEditingDealId(null);
+                setLocationCoordinatesLocked(false);
+                setLocationError('');
                 setFormData({
                   title: '',
                   business: '',
@@ -595,8 +676,6 @@ export default function MerchantPortal() {
                   is_featured: false,
                   store_address: '',
                   google_maps_url: '',
-                  lat: 8.8053,
-                  lng: 78.145,
                 });
                 setIsModalOpen(true);
               }}
@@ -1017,27 +1096,34 @@ export default function MerchantPortal() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Latitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={formData.lat ?? ''}
-                      onChange={(event) => setFormData({ ...formData, lat: Number(event.target.value) })}
-                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Longitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={formData.lng ?? ''}
-                      onChange={(event) => setFormData({ ...formData, lng: Number(event.target.value) })}
-                      className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Store Google Maps Location Link *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Paste Google Maps link (e.g., https://maps.app.goo.gl/... or share link)"
+                    value={formData.google_maps_url || ''}
+                    onChange={(event) => handleMapsLocationChange(event.target.value)}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                  {locationCoordinatesLocked &&
+                    typeof formData.lat === 'number' &&
+                    typeof formData.lng === 'number' && (
+                      <p className="mt-1.5 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                        ✓ GPS Coordinates locked: {formData.lat.toFixed(4)}, {formData.lng.toFixed(4)}
+                      </p>
+                    )}
+                  {locationError && (
+                    <p role="alert" className="mt-1.5 text-xs text-rose-400">{locationError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDetectShopLocation}
+                    disabled={isDetectingLocation}
+                    className="mt-2 flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-600/20 px-3 py-1.5 text-xs font-bold text-blue-300 transition hover:bg-blue-600/30 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isDetectingLocation ? '📍 Detecting shop location...' : '📍 Detect My Shop Location'}
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
