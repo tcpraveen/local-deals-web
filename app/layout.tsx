@@ -8,6 +8,10 @@ export const metadata: Metadata = {
   title: 'Local Deals Hub — Best Neighborhood Discounts & Offers',
   description: 'Discover verified local deals, exclusive discounts, and connect directly on WhatsApp & phone.',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/icon-192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

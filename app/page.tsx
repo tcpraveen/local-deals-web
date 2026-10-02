@@ -99,10 +99,10 @@ export default function StorefrontPage() {
             <BrandLogo size={38} />
             <div className="min-w-0">
               <h1 className="flex flex-wrap items-center gap-2 text-lg font-black tracking-tight text-white">
-                <span>Local Deals Hub</span>
-              <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-900/40 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded-full">
-                Live GPS
-              </span>
+                <span>Local Deals <span className="text-blue-400">Hub</span></span>
+                <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-900/40 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded-full">
+                  Live GPS
+                </span>
               </h1>
               <p className="mt-0.5 text-xs text-slate-400">
                 Verified local retail discovery • Thoothukudi &amp; Authoor
