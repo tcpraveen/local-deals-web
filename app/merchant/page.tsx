@@ -6,7 +6,7 @@ import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Deal, SAMPLE_DEALS } from '@/lib/deals';
+import { Deal, isDealActive } from '@/lib/deals';
 
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
@@ -40,7 +40,6 @@ export default function MerchantPortal() {
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
   const [isResetView, setIsResetView] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -66,7 +65,7 @@ export default function MerchantPortal() {
   const [formData, setFormData] = useState<Partial<Deal>>({
     title: '',
     business: '',
-    logo_url: 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
+    logo_url: '',
     discount: '',
     original_price: '',
     deal_price: '',
@@ -170,6 +169,8 @@ export default function MerchantPortal() {
   async function fetchMyDeals(userId: string) {
     try {
       setLoading(true);
+      setMyDeals([]);
+      setRedemptionCount(0);
       const { data, error } = await supabase
         .from('deals')
         .select('*')
@@ -177,7 +178,9 @@ export default function MerchantPortal() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setMyDeals(data || []);
+      setMyDeals((data || []).filter((deal: Deal) =>
+        isDealActive(deal) && Boolean(deal.business?.trim()) && Boolean(deal.title?.trim())
+      ));
       const { count, error: redemptionCountError } = await supabase
         .from('redemptions')
         .select('id', { count: 'exact', head: true })
@@ -213,7 +216,7 @@ export default function MerchantPortal() {
       setAuthMessage({
         type: 'error',
         text: isNetworkFailure
-          ? 'Unable to reach the sign-in service right now. Check your connection or preview the dashboard in demo mode.'
+          ? 'Unable to reach the sign-in service right now. Please check your connection and try again.'
           : `Sign-in failed: ${message}`,
       });
     } finally {
@@ -329,8 +332,8 @@ export default function MerchantPortal() {
       const payload = {
         title: formData.title,
         business: formData.business,
-        logo_url: formData.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
-        discount: formData.discount || 'Special Offer',
+        logo_url: formData.logo_url || null,
+        discount: formData.discount || '',
         original_price: formData.original_price ? Number(formData.original_price) : null,
         deal_price: formData.deal_price ? Number(formData.deal_price) : null,
         category: formData.category,
@@ -344,7 +347,7 @@ export default function MerchantPortal() {
         google_maps_url: formData.google_maps_url || '',
         lat: formData.lat || 8.8053,
         lng: formData.lng || 78.145,
-        image: formData.image || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80',
+        image: formData.image || null,
         description: formData.description || '',
         user_id: user.id,
       };
@@ -385,22 +388,12 @@ export default function MerchantPortal() {
   };
 
   const totalInquiries = myDeals.reduce((sum, d) => sum + (d.inquiries_count || 0), 0);
-  const printStore = myDeals[0]?.business || 'Local Deals Hub Merchant';
+  const printStore = myDeals[0]?.business || '';
   const printStoreUrl = typeof window === 'undefined'
     ? '/'
     : `${window.location.origin}/store/${myDeals[0] ? myDeals[0].business.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : ''}`;
 
-  const sparklineData = [
-    Math.round(totalInquiries * 0.08),
-    Math.round(totalInquiries * 0.12),
-    Math.round(totalInquiries * 0.16),
-    Math.round(totalInquiries * 0.14),
-    Math.round(totalInquiries * 0.22),
-    Math.round(totalInquiries * 0.28),
-    totalInquiries || 1,
-  ];
-
-  if (!user && !isDemoMode) {
+  if (!user) {
     return (
       <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col justify-between">
         <header className="border-b border-slate-800 bg-[#0a101d]/80 px-4 sm:px-6 py-4 flex items-center justify-between">
@@ -527,22 +520,6 @@ export default function MerchantPortal() {
               </button>
             </div>}
 
-            <div className="border-t border-slate-800 pt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDemoMode(true);
-                  setMyDeals(SAMPLE_DEALS);
-                  setAuthMessage(null);
-                }}
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-800/70 py-2.5 text-xs font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-700"
-              >
-                Enter Demo Dashboard
-              </button>
-              <p className="mt-2 text-center text-[10px] text-zinc-500">
-                Preview merchant verification and QR standee screens without signing in.
-              </p>
-            </div>
           </div>
         </div>
 
@@ -559,7 +536,7 @@ export default function MerchantPortal() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center justify-between">
             <span className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-            🏬 Merchant Central {isDemoMode && <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">Demo</span>}
+            🏬 Merchant Central
             </span>
             <Link
               href="/"
@@ -603,7 +580,7 @@ export default function MerchantPortal() {
                 setFormData({
                   title: '',
                   business: '',
-                  logo_url: 'https://cdn-icons-png.flaticon.com/512/869/869636.png',
+                  logo_url: '',
                   discount: '',
                   original_price: '',
                   deal_price: '',
@@ -628,17 +605,10 @@ export default function MerchantPortal() {
               + Create Promotion
             </button>
             <button
-              onClick={() => {
-                if (isDemoMode) {
-                  setIsDemoMode(false);
-                  setMyDeals([]);
-                  return;
-                }
-                handleSignOut();
-              }}
+              onClick={handleSignOut}
               className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded-xl transition"
             >
-              {isDemoMode ? 'Exit Demo' : 'Sign Out'}
+              Sign Out
             </button>
           </div>
         </div>
@@ -689,44 +659,11 @@ export default function MerchantPortal() {
             <span className="text-xs text-slate-400 font-medium">Total Inquiries & Claims</span>
             <div className="text-2xl font-bold text-emerald-400">{totalInquiries}</div>
           </div>
-          <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-1">
-            <span className="text-xs text-slate-400 font-medium">Partner Tier</span>
-            <div className="text-2xl font-bold text-blue-400">Verified Seller</div>
-          </div>
         </div>
 
         <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-[#0e1626] px-5 py-4">
           <span className="text-xs text-slate-400">Redeemed at Counter</span>
           <span className="text-2xl font-black text-emerald-400">{redemptionCount}</span>
-        </div>
-
-        {/* 7-Day Performance Sparkline Graph */}
-        <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-              📈 7-Day Customer Inquiries & Redemptions
-            </h3>
-            <span className="text-[11px] text-emerald-400 font-semibold">+18% this week</span>
-          </div>
-
-          <div className="h-28 w-full pt-2 flex items-end justify-between gap-2 sm:gap-4 px-2 border-b border-slate-800 pb-2">
-            {sparklineData.map((val, idx) => {
-              const heightPercent = Math.max(15, Math.min(100, (val / (Math.max(...sparklineData) || 1)) * 100));
-              const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Today'];
-              return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
-                  <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition font-mono">
-                    {val}
-                  </span>
-                  <div
-                    style={{ height: `${heightPercent}%` }}
-                    className="w-full max-w-[36px] bg-gradient-to-t from-blue-600 to-sky-400 rounded-t-lg transition-all duration-500 group-hover:brightness-125"
-                  />
-                  <span className="text-[10px] text-slate-500">{days[idx]}</span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Live Deals Section */}
@@ -740,12 +677,16 @@ export default function MerchantPortal() {
             <div className="py-12 text-center text-slate-500 text-xs sm:text-sm">Loading listings...</div>
           ) : myDeals.length === 0 ? (
             <div className="py-12 text-center space-y-3">
-              <p className="text-slate-400 text-xs sm:text-sm">No active deals found.</p>
+              <span className="text-3xl" aria-hidden="true">🏬</span>
+              <h3 className="text-sm font-bold text-white">No active store promotions</h3>
+              <p className="text-slate-400 text-xs sm:text-sm">
+                Click &apos;+ Create Promotion&apos; to publish a verified neighborhood offer.
+              </p>
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-xl transition"
               >
-                Publish Your First Deal
+                + Create Promotion
               </button>
             </div>
           ) : (
@@ -755,11 +696,13 @@ export default function MerchantPortal() {
                 {myDeals.map((deal) => (
                   <div key={deal.id} className="p-3.5 bg-[#080d16] border border-slate-800/80 rounded-xl space-y-3">
                     <div className="flex items-start gap-3">
-                      <img
-                        src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
-                        alt={deal.business}
-                        className="w-10 h-10 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                      />
+                      {deal.logo_url && (
+                        <img
+                          src={deal.logo_url}
+                          alt={deal.business}
+                          className="w-10 h-10 rounded-full object-cover border border-slate-700 flex-shrink-0"
+                        />
+                      )}
                       <div className="flex-1 min-w-0">
                         <h4 className="text-xs font-bold text-white leading-tight truncate">{deal.title}</h4>
                         <p className="text-[11px] text-slate-400 truncate">
@@ -820,11 +763,13 @@ export default function MerchantPortal() {
                     {myDeals.map((deal) => (
                       <tr key={deal.id} className="hover:bg-slate-800/30">
                         <td className="py-3 flex items-center gap-3">
-                          <img
-                            src={deal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
-                            alt={deal.business}
-                            className="w-8 h-8 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                          />
+                          {deal.logo_url && (
+                            <img
+                              src={deal.logo_url}
+                              alt={deal.business}
+                              className="w-8 h-8 rounded-full object-cover border border-slate-700 flex-shrink-0"
+                            />
+                          )}
                           <div>
                             <div className="font-bold text-white truncate max-w-xs">{deal.title}</div>
                             <div className="text-[11px] text-slate-400">{deal.business}</div>
@@ -1193,11 +1138,13 @@ export default function MerchantPortal() {
 
             <div className="bg-white p-5 sm:p-6 rounded-2xl text-slate-900 space-y-3 shadow-inner">
               <div className="flex flex-col items-center gap-2">
-                <img
-                  src={qrDeal.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'}
-                  alt={qrDeal.business}
-                  className="w-12 sm:w-14 h-12 sm:h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm"
-                />
+                {qrDeal.logo_url && (
+                  <img
+                    src={qrDeal.logo_url}
+                    alt={qrDeal.business}
+                    className="w-12 sm:w-14 h-12 sm:h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm"
+                  />
+                )}
                 <div className="text-xs font-black uppercase tracking-wider text-blue-700">
                   {qrDeal.business}
                 </div>

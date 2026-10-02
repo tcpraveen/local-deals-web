@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
-import { Deal, getVouchersLeft, isDealActive, normalizeDeal, SAMPLE_DEALS, slugifyStoreName } from '@/lib/deals';
+import { Deal, isVerifiedActiveDeal, normalizeDeal, slugifyStoreName } from '@/lib/deals';
 
 export default function StorePage() {
   const params = useParams<{ slug: string }>();
@@ -14,22 +14,31 @@ export default function StorePage() {
   useEffect(() => {
     const loadStore = async () => {
       if (!isSupabaseConfigured) {
-        setDeals(SAMPLE_DEALS.filter((deal) => slugifyStoreName(deal.business) === params.slug));
         setLoading(false);
         return;
       }
 
-      const { data, error } = await supabase.from('deals').select('*').order('created_at', { ascending: false });
-      if (error) {
-        console.error('Error loading store offers:', error.message);
-        setDeals(SAMPLE_DEALS.filter((deal) => slugifyStoreName(deal.business) === params.slug));
-      } else {
-        const storeDeals = (data || []).map((deal: Record<string, unknown>) => normalizeDeal(deal)).filter((deal: Deal) =>
-          slugifyStoreName(deal.business) === params.slug && isDealActive(deal)
-        );
+      try {
+        const { data, error } = await supabase
+          .from('deals')
+          .select('*')
+          .eq('is_verified_merchant', true)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const storeDeals = (data || [])
+          .map((deal: Record<string, unknown>) => normalizeDeal(deal))
+          .filter((deal: Deal) =>
+            Number.isFinite(deal.id) &&
+            slugifyStoreName(deal.business) === params.slug &&
+            isVerifiedActiveDeal(deal)
+          );
         setDeals(storeDeals);
+      } catch (error) {
+        console.error('Error loading store offers:', error);
+        setDeals([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     loadStore();
   }, [params.slug]);
@@ -49,7 +58,7 @@ export default function StorePage() {
           <>
             <header className="rounded-3xl border border-slate-800 bg-[#0e1626] p-6 sm:p-8">
               <div className="flex items-center gap-4">
-                <img src={store.logo_url || 'https://cdn-icons-png.flaticon.com/512/869/869636.png'} alt={store.business} className="h-16 w-16 rounded-2xl object-cover" />
+                {store.logo_url && <img src={store.logo_url} alt={store.business} className="h-16 w-16 rounded-2xl object-cover" />}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Verified local merchant</p>
                   <h1 className="text-2xl font-black text-white">{store.business}</h1>
@@ -60,13 +69,15 @@ export default function StorePage() {
             <section className="grid gap-5 md:grid-cols-2">
               {deals.map((deal) => (
                 <article key={deal.id} className="rounded-3xl border border-slate-800 bg-[#0e1626] p-5">
-                  <img src={deal.image} alt={deal.title} className="h-48 w-full rounded-2xl object-cover" />
+                  {deal.image && <img src={deal.image} alt={deal.title} className="h-48 w-full rounded-2xl object-cover" />}
                   <div className="mt-4 space-y-3">
                     <span className="inline-block rounded-full bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white">{deal.discount}</span>
                     <h2 className="text-lg font-bold text-white">{deal.title}</h2>
                     <p className="text-sm text-slate-400">{deal.description}</p>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-amber-400">🔥 {getVouchersLeft(deal)} vouchers left</span>
+                      {typeof deal.vouchers_left === 'number' && (
+                        <span className="font-semibold text-amber-400">🔥 {deal.vouchers_left} vouchers left</span>
+                      )}
                       <a href={deal.phone ? `tel:${deal.phone}` : undefined} className="rounded-xl bg-emerald-600 px-3 py-2 font-bold text-white">☎ Call store</a>
                     </div>
                   </div>

@@ -3,6 +3,7 @@ export interface Deal {
   user_id?: string;
   title: string;
   business: string;
+  is_active?: boolean;
   price?: number | string;
   originalPrice?: number | string;
   vouchersCount?: number;
@@ -45,102 +46,59 @@ export interface StorefrontDeal extends Deal {
   lng: number;
 }
 
-export const SAMPLE_DEALS: Deal[] = [
-  {
-    id: -1,
-    title: 'Everyday essentials at a special price',
-    business: 'MJ TRADERS',
-    discount: '20% OFF',
-    original_price: 500,
-    deal_price: 400,
-    category: 'Retail',
-    location: 'Main Bazaar',
-    phone: '',
-    opening_time: '09:00',
-    closing_time: '21:00',
-    image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=900&q=80',
-    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
-    scarcityText: '🔥 Only 4 vouchers left today',
-    lat: 8.8053,
-    lng: 78.145,
-  },
-  {
-    id: -2,
-    title: 'Electrical service and appliance care',
-    business: 'Cool Care Electricals',
-    discount: 'Special Offer',
-    category: 'Services',
-    location: 'Anna Nagar',
-    phone: '',
-    opening_time: '09:00',
-    closing_time: '21:00',
-    image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=900&q=80',
-    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
-    scarcityText: '⚡ Claimed by 14 people nearby',
-  },
-  {
-    id: -3,
-    title: 'Classic Men Trends special offer',
-    business: 'Classic Men Trends',
-    discount: 'Special Offer',
-    category: 'Fashion',
-    location: 'Beach Road',
-    phone: '',
-    opening_time: '09:00',
-    closing_time: '21:00',
-    image: 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80',
-    description: 'A sample local offer. Connect Supabase to publish live merchant deals.',
-    scarcityText: '⏳ Deal ends Sunday',
-  },
-];
-
-const AREA_COORDINATES: Record<string, [number, number]> = {
-  'Main Bazaar': [8.81, 78.14],
-  'Anna Nagar': [8.812, 78.132],
-  'Beach Road': [8.818, 78.147],
-};
-
-export const DEALS: StorefrontDeal[] = SAMPLE_DEALS.filter(isDealActive).map((deal) => {
-  const [areaLat, areaLng] = AREA_COORDINATES[deal.location || ''] || [8.8053, 78.145];
-  return {
-    ...deal,
-    price: deal.deal_price ?? 'Special',
-    originalPrice: deal.original_price ?? deal.deal_price ?? 'Special',
-    vouchersCount: getVouchersLeft(deal),
-    address: deal.store_address || `${deal.location || 'Local area'}, Thoothukudi`,
-    lat: deal.lat ?? areaLat,
-    lng: deal.lng ?? areaLng,
-  };
-});
-
 export function getDirectionsUrl(lat: number, lng: number): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
 }
 
 export function normalizeDeal(record: Record<string, unknown>): Deal {
-  const rawBusiness = String(record.business || record.shop_name || 'Local merchant');
-  const business = rawBusiness.toLowerCase() === 'mj taders' ? 'MJ TRADERS' : rawBusiness;
-  const scarcityByBusiness: Record<string, string> = {
-    'mj traders': '🔥 Only 4 vouchers left today',
-    'cool care electricals': '⚡ Claimed by 14 people nearby',
-    'classic men trends': '⏳ Deal ends Sunday',
-  };
+  const businessValue = record.business ?? record.shop_name;
+  const discountValue = record.discount ?? record.discount_badge;
+  const locationValue = record.location ?? record.area;
+  const openingTime = record.opening_time ?? record.open_time;
+  const closingTime = record.closing_time ?? record.close_time;
   return {
-    ...record,
     id: Number(record.id),
-    title: String(record.title || 'Local offer'),
-    business,
-    discount: String(record.discount || record.discount_badge || 'Special Offer'),
+    title: typeof record.title === 'string' ? record.title : '',
+    business: typeof businessValue === 'string' ? businessValue : '',
+    discount: typeof discountValue === 'string' ? discountValue : '',
     deal_price: (record.deal_price ?? record.discount_price) as Deal['deal_price'],
-    location: String(record.location || record.area || ''),
-    opening_time: String(record.opening_time || record.open_time || '09:00'),
-    closing_time: String(record.closing_time || record.close_time || '21:00'),
-    scarcityText: scarcityByBusiness[business.toLowerCase()] || String(
-      record.scarcityText ||
-      record.scarcity_text ||
-      ''
-    ) || undefined,
-  } as Deal;
+    original_price: record.original_price as Deal['original_price'],
+    category: typeof record.category === 'string' ? record.category : '',
+    location: typeof locationValue === 'string' ? locationValue : '',
+    area: typeof record.area === 'string' ? record.area : undefined,
+    phone: typeof record.phone === 'string' ? record.phone : undefined,
+    expires_at: typeof record.expires_at === 'string' ? record.expires_at : undefined,
+    opening_time: typeof openingTime === 'string' ? openingTime : undefined,
+    closing_time: typeof closingTime === 'string' ? closingTime : undefined,
+    image: typeof record.image === 'string' ? record.image : '',
+    description: typeof record.description === 'string' ? record.description : '',
+    scarcityText:
+      typeof record.scarcityText === 'string'
+        ? record.scarcityText
+        : typeof record.scarcity_text === 'string'
+          ? record.scarcity_text
+          : undefined,
+    user_id: typeof record.user_id === 'string' ? record.user_id : undefined,
+    is_active: typeof record.is_active === 'boolean' ? record.is_active : undefined,
+    logo_url: typeof record.logo_url === 'string' ? record.logo_url : undefined,
+    originalPrice: record.originalPrice as Deal['originalPrice'],
+    vouchersCount: typeof record.vouchersCount === 'number' ? record.vouchersCount : undefined,
+    price: record.price as Deal['price'],
+    address: typeof record.address === 'string' ? record.address : undefined,
+    views_count: typeof record.views_count === 'number' ? record.views_count : undefined,
+    inquiries_count: typeof record.inquiries_count === 'number' ? record.inquiries_count : undefined,
+    is_featured: typeof record.is_featured === 'boolean' ? record.is_featured : undefined,
+    is_verified_merchant:
+      typeof record.is_verified_merchant === 'boolean' ? record.is_verified_merchant : undefined,
+    store_address: typeof record.store_address === 'string' ? record.store_address : undefined,
+    google_maps_url: typeof record.google_maps_url === 'string' ? record.google_maps_url : undefined,
+    lat: typeof record.lat === 'number' ? record.lat : undefined,
+    lng: typeof record.lng === 'number' ? record.lng : undefined,
+    rating: typeof record.rating === 'number' ? record.rating : undefined,
+    review_count: typeof record.review_count === 'number' ? record.review_count : undefined,
+    vouchers_left: typeof record.vouchers_left === 'number' ? record.vouchers_left : undefined,
+    voucher_limit: typeof record.voucher_limit === 'number' ? record.voucher_limit : undefined,
+  };
 }
 
 export const FALLBACK_LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road'];
@@ -155,9 +113,26 @@ export function slugifyStoreName(name: string): string {
 }
 
 export function isDealActive(deal: Deal): boolean {
+  if (deal.is_active === false) return false;
   if (!deal.expires_at) return true;
   const expiry = new Date(`${deal.expires_at}T23:59:59`).getTime();
-  return Number.isNaN(expiry) || expiry >= Date.now();
+  return Number.isFinite(expiry) && expiry >= Date.now();
+}
+
+export function isVerifiedActiveDeal(deal: Deal): boolean {
+  const containsTestLabel = /\b(?:test|sample|demo|dummy|placeholder)\b/i;
+  const fillerDiscount = /^(?:special offer|discount|offer|n\/?a)$/i;
+
+  return (
+    deal.is_verified_merchant === true &&
+    isDealActive(deal) &&
+    Boolean(deal.business.trim()) &&
+    Boolean(deal.title.trim()) &&
+    Boolean(deal.discount.trim()) &&
+    !fillerDiscount.test(deal.discount.trim()) &&
+    !containsTestLabel.test(deal.business) &&
+    !containsTestLabel.test(deal.title)
+  );
 }
 
 export function getDealDistance(deal: Deal): number {
@@ -174,7 +149,5 @@ export function getDealDistance(deal: Deal): number {
 }
 
 export function getVouchersLeft(deal: Deal): number {
-  if (typeof deal.vouchers_left === 'number') return Math.max(0, deal.vouchers_left);
-  const limit = deal.voucher_limit ?? 10;
-  return Math.max(0, limit - (deal.inquiries_count || 0));
+  return typeof deal.vouchers_left === 'number' ? Math.max(0, deal.vouchers_left) : 0;
 }

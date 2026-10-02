@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { DEALS, LOCATIONS, getDirectionsUrl, Deal } from "@/lib/deals";
+import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
+import { Deal, getDirectionsUrl, isVerifiedActiveDeal, LOCATIONS, normalizeDeal } from "@/lib/deals";
 import InstallPrompt from "./InstallPrompt";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
@@ -45,11 +46,45 @@ function estimateTravelDuration(distanceKm: number): string {
 
 export default function StorefrontPage() {
   const [showSplash, setShowSplash] = useState(true);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [dealsLoading, setDealsLoading] = useState(true);
+  const [dealsError, setDealsError] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState<string>("All");
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
   const finishSplash = useCallback(() => setShowSplash(false), []);
+
+  useEffect(() => {
+    const loadDeals = async () => {
+      if (!isSupabaseConfigured) {
+        setDealsLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('deals')
+          .select('*')
+          .eq('is_verified_merchant', true)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const activeDeals = (data || [])
+          .map((record: Record<string, unknown>) => normalizeDeal(record))
+          .filter((deal: Deal) => Number.isFinite(deal.id) && isVerifiedActiveDeal(deal));
+        setDeals(activeDeals);
+      } catch (error) {
+        console.error('Error loading verified deals:', error);
+        setDealsError('Deals could not be loaded right now. Please try again later.');
+      } finally {
+        setDealsLoading(false);
+      }
+    };
+
+    queueMicrotask(() => {
+      void loadDeals();
+    });
+  }, []);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -84,7 +119,7 @@ export default function StorefrontPage() {
     setClaimedDeals((prev) => ({ ...prev, [deal.id]: uniqueCode }));
   };
 
-  const filteredDeals = DEALS.filter(
+  const filteredDeals = deals.filter(
     (deal) => selectedArea === "All" || deal.location === selectedArea
   );
 
@@ -170,17 +205,26 @@ export default function StorefrontPage() {
 
         {/* Deals Listing */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredDeals.map((deal) => {
-            const distance = coords
+          {dealsLoading ? (
+            <p className="col-span-full py-16 text-center text-sm text-slate-400">Loading verified deals...</p>
+          ) : dealsError ? (
+            <p role="alert" className="col-span-full py-16 text-center text-sm text-rose-300">{dealsError}</p>
+          ) : filteredDeals.length === 0 ? (
+            <p className="col-span-full rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-12 text-center text-sm text-slate-400">
+              No verified deals currently active in this area. Check back soon!
+            </p>
+          ) : filteredDeals.map((deal) => {
+            const distance = coords && typeof deal.lat === 'number' && typeof deal.lng === 'number'
               ? calculateHaversineDistanceKm(coords.lat, coords.lng, deal.lat, deal.lng)
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
             const voucherCode = claimedDeals[deal.id];
+            const dealPrice = deal.deal_price ?? deal.price ?? deal.discount;
             const phoneDigits = (deal.phone || '').replace(/\D/g, '');
             const whatsappNumber =
               phoneDigits.length === 10
                 ? `91${phoneDigits}`
-                : phoneDigits || '919876543210';
+                : phoneDigits;
 
             return (
               <article
@@ -225,11 +269,21 @@ export default function StorefrontPage() {
 
                   {/* Pricing Overview */}
                   <div className="mt-4 flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-white">₹{deal.price}</span>
-                    <span className="text-xs text-slate-500 line-through">₹{deal.originalPrice}</span>
-                    <span className="text-[11px] font-bold text-amber-400 ml-auto">
-                      {deal.vouchersCount} vouchers left
+                    <span className="text-2xl font-black text-white">
+                      {deal.deal_price !== undefined || deal.price !== undefined
+                        ? `₹${dealPrice}`
+                        : deal.discount}
                     </span>
+                    {(deal.original_price ?? deal.originalPrice) !== undefined && (
+                      <span className="text-xs text-slate-500 line-through">
+                        ₹{deal.original_price ?? deal.originalPrice}
+                      </span>
+                    )}
+                    {typeof deal.vouchers_left === 'number' && (
+                      <span className="ml-auto text-[11px] font-bold text-amber-400">
+                        {deal.vouchers_left} vouchers left
+                      </span>
+                    )}
                   </div>
 
                   {/* Voucher Claim Box */}
@@ -255,6 +309,7 @@ export default function StorefrontPage() {
                     </a>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
+                    {whatsappNumber && (
                     <a
                       href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
                         `Vanakkam! I want to claim the ${deal.discount || 'special offer'} for ${deal.title} seen on Local Deals Hub.`
@@ -265,6 +320,7 @@ export default function StorefrontPage() {
                     >
                       <span aria-hidden="true">💬</span> WhatsApp
                     </a>
+                    )}
                     <button
                       onClick={() => handleClaim(deal)}
                       disabled={!!voucherCode}
@@ -280,7 +336,13 @@ export default function StorefrontPage() {
 
                   {/* Exact Turn-by-Turn GPS Navigation */}
                   <a
-                    href={getDirectionsUrl(deal.lat, deal.lng)}
+                    href={
+                      typeof deal.lat === 'number' && typeof deal.lng === 'number'
+                        ? getDirectionsUrl(deal.lat, deal.lng)
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${deal.business}, ${deal.store_address || deal.location || ''}`
+                          )}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
@@ -294,7 +356,7 @@ export default function StorefrontPage() {
           })}
         </section>
       </div>
-      <AIAssistant coords={coords} />
+      <AIAssistant coords={coords} deals={deals} />
     </main>
   );
 }

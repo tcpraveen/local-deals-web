@@ -1,12 +1,13 @@
 'use client';
 
 import { FormEvent, useRef, useState } from 'react';
-import { DEALS, StorefrontDeal } from '@/lib/deals';
+import { Deal } from '@/lib/deals';
 import { isStoreOpen } from '@/lib/storeHours';
 import BrandLogo from './BrandLogo';
 
 interface AIAssistantProps {
   coords: { lat: number; lng: number } | null;
+  deals: Deal[];
 }
 
 interface ChatMessage {
@@ -32,7 +33,11 @@ function distanceKm(
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function buildReply(question: string, coords: AIAssistantProps['coords']): string {
+function buildReply(
+  question: string,
+  coords: AIAssistantProps['coords'],
+  deals: AIAssistantProps['deals']
+): string {
   const normalizedQuestion = question.toLowerCase();
 
   if (/claim|voucher|redeem/.test(normalizedQuestion)) {
@@ -40,15 +45,18 @@ function buildReply(question: string, coords: AIAssistantProps['coords']): strin
   }
 
   if (/open|hours|time/.test(normalizedQuestion)) {
-    const openStores = DEALS.filter((deal) =>
-      isStoreOpen(deal.opening_time ?? '09:00', deal.closing_time ?? '21:00')
+    const openStores = deals.filter(
+      (deal): deal is Deal & { opening_time: string; closing_time: string } =>
+        typeof deal.opening_time === 'string' &&
+        typeof deal.closing_time === 'string' &&
+        isStoreOpen(deal.opening_time, deal.closing_time)
     );
     return openStores.length
       ? `These stores are open now: ${openStores.map((deal) => deal.business).join(', ')}.`
-      : 'No listed stores are open right now. Check an offer card for the store address and hours.';
+      : 'No verified active offers with available store hours are open right now.';
   }
 
-  const matchingDeals = DEALS.filter((deal) =>
+  const matchingDeals = deals.filter((deal) =>
     [deal.business, deal.title, deal.location, deal.category]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
       .some((value) => normalizedQuestion.includes(value.toLowerCase()))
@@ -58,29 +66,44 @@ function buildReply(question: string, coords: AIAssistantProps['coords']): strin
     return matchingDeals.map((deal) => describeDeal(deal)).join('\n\n');
   }
 
+  if (deals.length === 0) {
+    return 'There are no verified active offers available right now. Check back soon.';
+  }
+
   if (/near|nearby|distance|closest/.test(normalizedQuestion) && coords) {
-    const closestDeals = [...DEALS]
+    const closestDeals = deals
+      .filter(
+        (deal): deal is Deal & { lat: number; lng: number } =>
+          typeof deal.lat === 'number' && typeof deal.lng === 'number'
+      )
       .sort(
         (first, second) =>
           distanceKm(coords.lat, coords.lng, first.lat, first.lng) -
           distanceKm(coords.lat, coords.lng, second.lat, second.lng)
       )
       .slice(0, 3);
-    return `Closest offers to your current location:\n${closestDeals.map((deal) => describeDeal(deal)).join('\n')}`;
+    return closestDeals.length
+      ? `Closest offers to your current location:\n${closestDeals.map(describeDeal).join('\n')}`
+      : 'There are no verified active offers with location coordinates available yet.';
   }
 
   if (/near|nearby|distance|closest/.test(normalizedQuestion)) {
     return 'Allow location access to sort offers by distance, or choose Main Bazaar, Anna Nagar, or Beach Road in the area filters.';
   }
 
-  return `I can help find a deal by store, area, or category, check which stores are open, and explain how voucher claiming works. Current offers: ${DEALS.map((deal) => deal.business).join(', ')}.`;
+  return deals.length
+    ? `I can help find a deal by store, area, or category, check which stores are open, and explain how voucher claiming works. Verified active offers: ${deals.map((deal) => deal.business).join(', ')}.`
+    : 'There are no verified active offers available right now. Check back soon.';
 }
 
-function describeDeal(deal: StorefrontDeal): string {
-  return `${deal.business} (${deal.location}) — ${deal.title}, ${deal.discount}. ${deal.vouchersCount} vouchers left.`;
+function describeDeal(deal: Deal): string {
+  const location = deal.location ? ` (${deal.location})` : '';
+  const vouchers =
+    typeof deal.vouchers_left === 'number' ? ` ${deal.vouchers_left} vouchers left.` : '';
+  return `${deal.business}${location} — ${deal.title}, ${deal.discount}.${vouchers}`;
 }
 
-export default function AIAssistant({ coords }: AIAssistantProps) {
+export default function AIAssistant({ coords, deals }: AIAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -105,7 +128,7 @@ export default function AIAssistant({ coords }: AIAssistantProps) {
     const assistantMessage: ChatMessage = {
       id: nextMessageId.current++,
       role: 'assistant',
-      text: buildReply(question, coords),
+      text: buildReply(question, coords, deals),
     };
     setMessages((previous) => [...previous, userMessage, assistantMessage]);
     setInput('');
