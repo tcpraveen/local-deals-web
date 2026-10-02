@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DEALS, LOCATIONS, getDirectionsUrl, Deal } from "@/lib/deals";
 import InstallPrompt from "./InstallPrompt";
+import BrandLogo from "./BrandLogo";
+import SplashScreen from "./SplashScreen";
+import AIAssistant from "./AIAssistant";
 
 function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -42,10 +45,12 @@ function estimateTravelDuration(distanceKm: number): string {
 }
 
 export default function StorefrontPage() {
+  const [showSplash, setShowSplash] = useState(true);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState<string>("All");
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
+  const finishSplash = useCallback(() => setShowSplash(false), []);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -86,23 +91,27 @@ export default function StorefrontPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
+      {showSplash && <SplashScreen onFinish={finishSplash} />}
       {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-20 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
-              <span className="text-blue-500">Local Deals Hub</span>
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandLogo size={38} />
+            <div className="min-w-0">
+              <h1 className="flex flex-wrap items-center gap-2 text-lg font-black tracking-tight text-white">
+                <span>Local Deals Hub</span>
               <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-900/40 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded-full">
                 Live GPS
               </span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Verified local merchants across Thoothukudi & Authoor
-            </p>
+              </h1>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Verified local retail discovery • Thoothukudi &amp; Authoor
+              </p>
+            </div>
           </div>
           <Link
             href="/merchant"
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 transition"
+            className="shrink-0 rounded-lg border border-blue-500/40 bg-blue-600/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:border-blue-400/60 hover:bg-blue-600/30"
           >
             Merchant Portal
           </Link>
@@ -163,6 +172,11 @@ export default function StorefrontPage() {
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
             const voucherCode = claimedDeals[deal.id];
+            const phoneDigits = (deal.phone || '').replace(/\D/g, '');
+            const whatsappNumber =
+              phoneDigits.length === 10
+                ? `91${phoneDigits}`
+                : phoneDigits || '919876543210';
 
             return (
               <article
@@ -228,17 +242,29 @@ export default function StorefrontPage() {
 
                 {/* Direct Actions */}
                 <div className="mt-6 pt-4 border-t border-slate-800/70 flex flex-col gap-2">
-                  <div className="flex gap-2">
+                  <div className="mb-2 flex items-center justify-between">
                     <a
-                      href={`tel:${deal.phone}`}
-                      className="flex-1 text-center py-2.5 px-3 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 text-slate-200 text-xs font-bold transition"
+                      href={deal.phone ? `tel:${deal.phone}` : undefined}
+                      className="text-xs font-semibold text-slate-400 transition hover:text-white"
                     >
                       Call Shop
+                    </a>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
+                        `Vanakkam! I want to claim the ${deal.discount || 'special offer'} for ${deal.title} seen on Local Deals Hub.`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-3 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
+                    >
+                      <span aria-hidden="true">💬</span> WhatsApp
                     </a>
                     <button
                       onClick={() => handleClaim(deal)}
                       disabled={!!voucherCode}
-                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition ${
                         voucherCode
                           ? "bg-slate-800 text-slate-400 cursor-default"
                           : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20"
@@ -265,6 +291,7 @@ export default function StorefrontPage() {
         </section>
       </div>
       <InstallPrompt />
+      <AIAssistant coords={coords} />
     </main>
   );
 }
