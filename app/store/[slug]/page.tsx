@@ -28,7 +28,7 @@ export default function StorePage() {
         const storeDeals = (data || [])
           .map((deal: Record<string, unknown>) => normalizeDeal(deal))
           .filter((deal: Deal) =>
-            Number.isFinite(deal.id) &&
+            deal.id !== '' &&
             slugifyStoreName(deal.business) === params.slug &&
             isVerifiedActiveDeal(deal)
           );

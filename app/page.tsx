@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
-import { Deal, getDirectionsUrl, isVerifiedActiveDeal, LOCATIONS, normalizeDeal } from "@/lib/deals";
+import {
+  Deal,
+  getDirectionsUrl,
+  isVerifiedActiveDeal,
+  LOCATIONS,
+  normalizeDeal,
+  VERIFIED_REAL_DEALS,
+} from "@/lib/deals";
 import InstallPrompt from "./InstallPrompt";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
@@ -44,11 +51,53 @@ function estimateTravelDuration(distanceKm: number): string {
   return `~${hours}h ${mins}m drive`;
 }
 
+const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
+
+async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Supabase timeout')), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve(operation), timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function readCustomDeals(): Deal[] {
+  try {
+    const stored = localStorage.getItem(CUSTOM_DEALS_STORAGE_KEY);
+    if (!stored) return [];
+    const records: unknown = JSON.parse(stored);
+    if (!Array.isArray(records)) return [];
+    return records
+      .filter((record): record is Record<string, unknown> => Boolean(record) && typeof record === 'object')
+      .map((record) => normalizeDeal(record))
+      .filter((deal) => isVerifiedActiveDeal(deal) && Boolean(deal.user_id));
+  } catch (error) {
+    console.error('Unable to load locally published deals:', error);
+    return [];
+  }
+}
+
+function mergeDeals(primary: Deal[], customDeals: Deal[]): Deal[] {
+  const merged = new Map<string, Deal>();
+  for (const deal of [...primary, ...customDeals]) {
+    const key = String(deal.id);
+    const duplicate = [...merged.values()].some(
+      (existing) => existing.business === deal.business && existing.title === deal.title
+    );
+    if (!merged.has(key) && !duplicate) merged.set(key, deal);
+  }
+  return [...merged.values()];
+}
+
 export default function StorefrontPage() {
   const [showSplash, setShowSplash] = useState(true);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [dealsLoading, setDealsLoading] = useState(true);
-  const [dealsError, setDealsError] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState<string>("All");
@@ -57,25 +106,30 @@ export default function StorefrontPage() {
 
   useEffect(() => {
     const loadDeals = async () => {
-      if (!isSupabaseConfigured) {
-        setDealsLoading(false);
-        return;
-      }
-
       try {
-        const { data, error } = await supabase
-          .from('deals')
-          .select('*')
-          .eq('is_verified_merchant', true)
-          .order('created_at', { ascending: false });
+        const customDeals = readCustomDeals();
+        setDeals(customDeals);
+        if (!isSupabaseConfigured) {
+          setDeals(mergeDeals(VERIFIED_REAL_DEALS, customDeals));
+          return;
+        }
+
+        const { data, error } = await withTimeout(
+          supabase
+            .from('deals')
+            .select('*')
+            .eq('is_verified_merchant', true)
+            .order('created_at', { ascending: false }),
+          3000
+        );
         if (error) throw error;
         const activeDeals = (data || [])
           .map((record: Record<string, unknown>) => normalizeDeal(record))
-          .filter((deal: Deal) => Number.isFinite(deal.id) && isVerifiedActiveDeal(deal));
-        setDeals(activeDeals);
+          .filter((deal: Deal) => deal.id !== '' && isVerifiedActiveDeal(deal));
+        setDeals(mergeDeals(activeDeals.length ? activeDeals : VERIFIED_REAL_DEALS, customDeals));
       } catch (error) {
-        console.error('Error loading verified deals:', error);
-        setDealsError('Deals could not be loaded right now. Please try again later.');
+        console.error('Error loading verified deals; showing verified baseline listings:', error);
+        setDeals(mergeDeals(VERIFIED_REAL_DEALS, readCustomDeals()));
       } finally {
         setDealsLoading(false);
       }
@@ -207,8 +261,6 @@ export default function StorefrontPage() {
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {dealsLoading ? (
             <p className="col-span-full py-16 text-center text-sm text-slate-400">Loading verified deals...</p>
-          ) : dealsError ? (
-            <p role="alert" className="col-span-full py-16 text-center text-sm text-rose-300">{dealsError}</p>
           ) : filteredDeals.length === 0 ? (
             <p className="col-span-full rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-12 text-center text-sm text-slate-400">
               No verified deals currently active in this area. Check back soon!

@@ -6,8 +6,9 @@ import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Deal, isDealActive } from '@/lib/deals';
+import { Deal, isDealActive, normalizeDeal } from '@/lib/deals';
 
+const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
   { name: 'Main Bazaar', lat: 8.81, lng: 78.14 },
@@ -25,11 +26,57 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeoutId = setTimeout(() => reject(new Error('Request timed out. Please try again.')), milliseconds);
-    promise.then(resolve, reject).finally(() => clearTimeout(timeoutId));
+function withTimeout<T>(operation: PromiseLike<T>, milliseconds: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Supabase timeout')), milliseconds);
   });
+
+  try {
+    return Promise.race([Promise.resolve(operation), timeoutPromise]).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
+  } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    return Promise.reject(error);
+  }
+}
+
+function readStoredCustomDeals(): Deal[] {
+  try {
+    const stored = localStorage.getItem(CUSTOM_DEALS_STORAGE_KEY);
+    if (!stored) return [];
+    const records: unknown = JSON.parse(stored);
+    if (!Array.isArray(records)) return [];
+    return records
+      .filter((record): record is Record<string, unknown> => Boolean(record) && typeof record === 'object')
+      .map((record) => normalizeDeal(record));
+  } catch (error) {
+    console.error('Unable to read locally saved offers:', getErrorMessage(error));
+    return [];
+  }
+}
+
+function writeStoredCustomDeal(deal: Deal): void {
+  const stored = readStoredCustomDeals();
+  const nextDeals = [deal, ...stored.filter((existing) => String(existing.id) !== String(deal.id))];
+  localStorage.setItem(CUSTOM_DEALS_STORAGE_KEY, JSON.stringify(nextDeals));
+}
+
+function removeStoredCustomDeal(id: Deal['id']): void {
+  const nextDeals = readStoredCustomDeals().filter((deal) => String(deal.id) !== String(id));
+  localStorage.setItem(CUSTOM_DEALS_STORAGE_KEY, JSON.stringify(nextDeals));
+}
+
+function mergeMerchantDeals(databaseDeals: Deal[], localDeals: Deal[]): Deal[] {
+  const merged = new Map<string, Deal>();
+  for (const deal of [...databaseDeals, ...localDeals]) {
+    const duplicate = [...merged.values()].some(
+      (existing) => existing.business === deal.business && existing.title === deal.title
+    );
+    if (!merged.has(String(deal.id)) && !duplicate) merged.set(String(deal.id), deal);
+  }
+  return [...merged.values()];
 }
 
 function parseCoordinates(value: string): { lat: number; lng: number } | null {
@@ -63,6 +110,7 @@ export default function MerchantPortal() {
   const [user, setUser] = useState<User | null>(null);
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
@@ -74,7 +122,7 @@ export default function MerchantPortal() {
 
   // Modals & Scanner States
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingDealId, setEditingDealId] = useState<number | null>(null);
+  const [editingDealId, setEditingDealId] = useState<number | string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -113,10 +161,16 @@ export default function MerchantPortal() {
   });
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchMyDeals(session.user.id);
-    });
+    void withTimeout(supabase.auth.getSession(), 3000)
+      .then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        if (session?.user) void fetchMyDeals(session.user.id);
+        else setLoading(false);
+      })
+      .catch((error: unknown) => {
+        console.error('Unable to restore merchant session:', getErrorMessage(error));
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
@@ -140,12 +194,15 @@ export default function MerchantPortal() {
     }
 
     setScannedResult(normalizedCode);
-    const { data: existing, error: lookupError } = await supabase
-      .from('redemptions')
-      .select('id')
-      .eq('voucher_code', normalizedCode)
-      .eq('merchant_id', user.id)
-      .maybeSingle();
+    const { data: existing, error: lookupError } = await withTimeout(
+      supabase
+        .from('redemptions')
+        .select('id')
+        .eq('voucher_code', normalizedCode)
+        .eq('merchant_id', user.id)
+        .maybeSingle(),
+      3000
+    );
 
     if (lookupError) {
       setRedemptionError(`Unable to verify voucher: ${lookupError.message}`);
@@ -156,10 +213,13 @@ export default function MerchantPortal() {
       return;
     }
 
-    const { error } = await supabase.from('redemptions').insert([{
-      voucher_code: normalizedCode,
-      merchant_id: user.id,
-    }]);
+    const { error } = await withTimeout(
+      supabase.from('redemptions').insert([{
+        voucher_code: normalizedCode,
+        merchant_id: user.id,
+      }]),
+      3000
+    );
     if (error) {
       setRedemptionError(`Unable to redeem voucher: ${error.message}`);
       return;
@@ -195,30 +255,41 @@ export default function MerchantPortal() {
   }, [isScannerOpen, handleVoucherCodeRedeem]);
 
   async function fetchMyDeals(userId: string) {
+    const localDeals = readStoredCustomDeals().filter(
+      (deal) => deal.user_id === userId && isDealActive(deal)
+    );
+    setMyDeals(localDeals);
+    setRedemptionCount(0);
     try {
       setLoading(true);
-      setMyDeals([]);
-      setRedemptionCount(0);
-      const { data, error } = await supabase
-        .from('deals')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+      const [dealResult, redemptionResult] = await withTimeout(
+        Promise.all([
+          supabase
+            .from('deals')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('redemptions')
+            .select('id', { count: 'exact', head: true })
+            .eq('merchant_id', userId),
+        ]),
+        3000
+      );
 
-      if (error) throw error;
-      setMyDeals((data || []).filter((deal: Deal) =>
+      if (dealResult.error) throw dealResult.error;
+      const databaseDeals = (dealResult.data || []).filter((deal: Deal) =>
         isDealActive(deal) && Boolean(deal.business?.trim()) && Boolean(deal.title?.trim())
-      ));
-      const { count, error: redemptionCountError } = await supabase
-        .from('redemptions')
-        .select('id', { count: 'exact', head: true })
-        .eq('merchant_id', userId);
-      if (redemptionCountError) {
-        console.error('Error loading redemption analytics:', redemptionCountError.message);
+      );
+      setMyDeals(mergeMerchantDeals(databaseDeals, localDeals));
+      if (redemptionResult.error) {
+        console.error('Error loading redemption analytics:', redemptionResult.error.message);
+      } else {
+        setRedemptionCount(redemptionResult.count || 0);
       }
-      setRedemptionCount(count || 0);
     } catch (err: unknown) {
       console.error('Error fetching merchant deals:', getErrorMessage(err));
+      setMyDeals(localDeals);
     } finally {
       setLoading(false);
     }
@@ -400,55 +471,123 @@ export default function MerchantPortal() {
       return;
     }
 
-    try {
-      setSubmitting(true);
-      const cleanPhone = (formData.phone || '').replace(/[^0-9]/g, '');
+    setSubmitting(true);
+    const cleanPhone = (formData.phone || '').replace(/[^0-9]/g, '');
 
-      const payload = {
-        title: formData.title,
-        business: formData.business,
-        logo_url: formData.logo_url || null,
-        discount: formData.discount || '',
-        original_price: formData.original_price ? Number(formData.original_price) : null,
-        deal_price: formData.deal_price ? Number(formData.deal_price) : null,
-        category: formData.category,
-        location: formData.location || 'Main Bazaar',
-        phone: cleanPhone,
-        expires_at: formData.expires_at || null,
-        opening_time: formData.opening_time || '09:00',
-        closing_time: formData.closing_time || '21:30',
-        is_featured: Boolean(formData.is_featured),
-        store_address: formData.store_address || '',
-        google_maps_url: formData.google_maps_url || '',
-        lat: formData.lat,
-        lng: formData.lng,
-        image: formData.image || null,
-        description: formData.description || '',
-        user_id: user.id,
-      };
+    const payload = {
+      title: formData.title,
+      business: formData.business,
+      logo_url: formData.logo_url || null,
+      discount: formData.discount || '',
+      original_price: formData.original_price ? Number(formData.original_price) : null,
+      deal_price: formData.deal_price ? Number(formData.deal_price) : null,
+      category: formData.category,
+      location: formData.location || 'Main Bazaar',
+      phone: cleanPhone,
+      expires_at: formData.expires_at || null,
+      opening_time: formData.opening_time || '09:00',
+      closing_time: formData.closing_time || '21:30',
+      is_featured: Boolean(formData.is_featured),
+      store_address: formData.store_address || '',
+      google_maps_url: formData.google_maps_url || '',
+      lat: formData.lat,
+      lng: formData.lng,
+      image: formData.image || null,
+      description: formData.description || '',
+      user_id: user.id,
+    };
 
-      if (editingDealId) {
-        const { error } = await supabase.from('deals').update(payload).eq('id', editingDealId);
+    if (typeof editingDealId === 'number') {
+      try {
+        const { error } = await withTimeout(
+          supabase.from('deals').update(payload).eq('id', editingDealId),
+          3000
+        );
         if (error) throw error;
-      } else {
-        const { error } = await supabase.from('deals').insert([payload]);
-        if (error) throw error;
+        setIsModalOpen(false);
+        setEditingDealId(null);
+        await fetchMyDeals(user.id);
+      } catch (error: unknown) {
+        alert(`Error saving offer: ${getErrorMessage(error)}`);
+      } finally {
+        setSubmitting(false);
       }
-
-      setIsModalOpen(false);
-      setEditingDealId(null);
-      await fetchMyDeals(user.id);
-    } catch (err: unknown) {
-      alert(`Error saving offer: ${getErrorMessage(err)}`);
-    } finally {
-      setSubmitting(false);
+      return;
     }
+
+    const optimisticId = typeof editingDealId === 'string' ? editingDealId : `local-${Date.now()}`;
+    const optimisticDeal = normalizeDeal({
+      ...payload,
+      id: optimisticId,
+      is_active: true,
+      is_verified_merchant: true,
+      vouchers_left: formData.vouchers_left ?? formData.vouchersCount ?? 0,
+    });
+    let localSaveError: unknown;
+    try {
+      writeStoredCustomDeal(optimisticDeal);
+    } catch (error: unknown) {
+      localSaveError = error;
+      console.error('Unable to persist the new offer locally:', getErrorMessage(error));
+    }
+
+    setMyDeals((current) =>
+      mergeMerchantDeals(
+        current.filter((deal) => String(deal.id) !== String(optimisticId)),
+        [optimisticDeal]
+      )
+    );
+    setIsModalOpen(false);
+    setEditingDealId(null);
+    setSubmitting(false);
+    setSaveNotice(
+      localSaveError
+        ? 'Offer is visible in this dashboard, but browser storage is unavailable.'
+        : 'Offer published locally. Syncing it to your account…'
+    );
+
+    void withTimeout(
+      supabase.from('deals').insert([payload]).select('*').single(),
+      3000
+    )
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!data) throw new Error('Supabase did not return the saved offer.');
+        const syncedDeal: Deal = { ...optimisticDeal, id: data.id };
+        setMyDeals((current) =>
+          mergeMerchantDeals(
+            current.filter((deal) => String(deal.id) !== String(optimisticId)),
+            [syncedDeal]
+          )
+        );
+        try {
+          if (String(optimisticId) !== String(syncedDeal.id)) {
+            removeStoredCustomDeal(optimisticId);
+          }
+          writeStoredCustomDeal(syncedDeal);
+          setSaveNotice('Offer saved to your account.');
+        } catch (error: unknown) {
+          console.error('Offer saved remotely, but local cache update failed:', getErrorMessage(error));
+          setSaveNotice('Offer saved to your account, but browser storage could not be updated.');
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('Unable to sync the locally published offer:', getErrorMessage(error));
+        setSaveNotice(
+          'Offer remains in this browser, but could not be synced to your account. Check your connection and try again.'
+        );
+      });
   };
 
-  const handleDeleteDeal = async (id: number) => {
+  const handleDeleteDeal = async (id: Deal['id']) => {
     if (!confirm('Are you sure you want to remove this active deal?')) return;
     try {
-      const { error } = await supabase.from('deals').delete().eq('id', id);
+      if (typeof id === 'string') {
+        removeStoredCustomDeal(id);
+        setMyDeals((current) => current.filter((deal) => String(deal.id) !== id));
+        return;
+      }
+      const { error } = await withTimeout(supabase.from('deals').delete().eq('id', id), 3000);
       if (error) throw error;
       if (user) await fetchMyDeals(user.id);
     } catch (err: unknown) {
@@ -694,6 +833,15 @@ export default function MerchantPortal() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
+        {saveNotice && (
+          <p
+            role="status"
+            className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200"
+          >
+            {saveNotice}
+          </p>
+        )}
+
         {/* KPI Performance Metrics */}
         <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>

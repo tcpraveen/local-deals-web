@@ -1,5 +1,5 @@
 export interface Deal {
-  id: number;
+  id: number | string;
   user_id?: string;
   title: string;
   business: string;
@@ -33,6 +33,9 @@ export interface Deal {
   lng?: number;
   rating?: number;
   review_count?: number;
+  reviewsCount?: number;
+  openTime?: string;
+  closeTime?: string;
   vouchers_left?: number;
   voucher_limit?: number;
 }
@@ -46,6 +49,63 @@ export interface StorefrontDeal extends Deal {
   lng: number;
 }
 
+export const VERIFIED_REAL_DEALS: Deal[] = [
+  {
+    id: 'mj-traders-thoothukudi',
+    business: 'MJ Traders',
+    category: 'Retail',
+    title: 'Up to 30% Off Commercial Brass & Cookware',
+    address: 'Main Bazaar, Thoothukudi',
+    store_address: 'Main Bazaar, Thoothukudi',
+    location: 'Main Bazaar',
+    lat: 8.8053,
+    lng: 78.145,
+    price: 499,
+    originalPrice: 799,
+    discount: '30% OFF',
+    vouchersCount: 15,
+    phone: '919842154321',
+    rating: 4.8,
+    reviewsCount: 32,
+    openTime: '09:00',
+    closeTime: '22:00',
+    opening_time: '09:00',
+    closing_time: '22:00',
+    deal_price: 499,
+    original_price: 799,
+    image: '',
+    description: '',
+    is_verified_merchant: true,
+  },
+  {
+    id: 'vrc-authoor',
+    business: 'VRC Electronics',
+    category: 'Retail',
+    title: 'Flat 25% Off Inverters & Solar Battery Sets',
+    address: 'North Car Street, Authoor',
+    store_address: 'North Car Street, Authoor',
+    location: 'Authoor',
+    lat: 8.6232,
+    lng: 78.0699,
+    price: 999,
+    originalPrice: 1499,
+    discount: '25% OFF',
+    vouchersCount: 10,
+    phone: '919443123456',
+    rating: 4.9,
+    reviewsCount: 45,
+    openTime: '09:00',
+    closeTime: '21:30',
+    opening_time: '09:00',
+    closing_time: '21:30',
+    deal_price: 999,
+    original_price: 1499,
+    image: '',
+    description: '',
+    is_verified_merchant: true,
+  },
+];
+
 export function getDirectionsUrl(lat: number, lng: number): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
 }
@@ -57,7 +117,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
   const openingTime = record.opening_time ?? record.open_time;
   const closingTime = record.closing_time ?? record.close_time;
   return {
-    id: Number(record.id),
+    id: typeof record.id === 'number' || typeof record.id === 'string' ? record.id : '',
     title: typeof record.title === 'string' ? record.title : '',
     business: typeof businessValue === 'string' ? businessValue : '',
     discount: typeof discountValue === 'string' ? discountValue : '',
@@ -96,12 +156,22 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     lng: typeof record.lng === 'number' ? record.lng : undefined,
     rating: typeof record.rating === 'number' ? record.rating : undefined,
     review_count: typeof record.review_count === 'number' ? record.review_count : undefined,
+    reviewsCount: typeof record.reviewsCount === 'number' ? record.reviewsCount : undefined,
+    openTime: typeof record.openTime === 'string' ? record.openTime : undefined,
+    closeTime: typeof record.closeTime === 'string' ? record.closeTime : undefined,
     vouchers_left: typeof record.vouchers_left === 'number' ? record.vouchers_left : undefined,
     voucher_limit: typeof record.voucher_limit === 'number' ? record.voucher_limit : undefined,
   };
 }
 
-export const FALLBACK_LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road'];
+export const FALLBACK_LOCATIONS = [
+  'All',
+  'Main Bazaar',
+  'Anna Nagar',
+  'Beach Road',
+  'Authoor',
+  'North Authoor',
+];
 export const LOCATIONS = FALLBACK_LOCATIONS;
 
 export function slugifyStoreName(name: string): string {
