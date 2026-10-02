@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -10,171 +10,139 @@ interface BeforeInstallPromptEvent extends Event {
   }>;
 }
 
-type InstallPlatform = 'ios' | 'android' | 'other';
+interface NavigatorWithStandalone extends Navigator {
+  standalone?: boolean;
+}
 
-const DISMISSAL_KEY = 'ldh_pwa_dismissed';
-const MANUAL_INSTALL_EVENT = 'ldh:show-install-guide';
+const INSTALLED_KEY = 'ldh_pwa_installed';
 
-function isStandaloneMode(): boolean {
+function detectInstalledState(): boolean {
   return (
     window.matchMedia('(display-mode: standalone)').matches ||
-    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+    (window.navigator as NavigatorWithStandalone).standalone === true ||
+    document.referrer.includes('android-app://') ||
+    window.localStorage.getItem(INSTALLED_KEY) === 'true'
   );
 }
 
-function getInstallPlatform(): InstallPlatform {
-  const userAgent = navigator.userAgent;
+function getInstallInstructions(): string {
+  const userAgent = window.navigator.userAgent;
   const isIos =
     /iPad|iPhone|iPod/i.test(userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (isIos) return 'ios';
-  if (/Android/i.test(userAgent)) return 'android';
-  return 'other';
-}
+    (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
 
-function isMobileDevice(): boolean {
-  return (
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  );
-}
-
-export function requestInstallGuide(): void {
-  window.dispatchEvent(new Event(MANUAL_INSTALL_EVENT));
+  if (isIos) {
+    return "Tap Share ⎋ and select 'Add to Home Screen ⊞'.";
+  }
+  if (/Android/i.test(userAgent)) {
+    return "Tap the 3 dots (⋮) in Chrome top right and tap 'Install app' or 'Add to Home screen'.";
+  }
+  return 'Open your browser menu and choose Install App or Add to Home Screen.';
 }
 
 export default function InstallPrompt() {
-  const [isVisible, setIsVisible] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
-  const [platform, setPlatform] = useState<InstallPlatform>('other');
+  const [isInstalled, setIsInstalled] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installing, setInstalling] = useState(false);
-
-  const launchNativePrompt = useCallback(async (promptEvent: BeforeInstallPromptEvent) => {
-    setInstalling(true);
-    try {
-      await promptEvent.prompt();
-      const { outcome } = await promptEvent.userChoice;
-      setDeferredPrompt(null);
-      if (outcome === 'accepted') setIsVisible(false);
-    } catch (error) {
-      console.error('Unable to show the app installation prompt:', error);
-      setIsVisible(true);
-    } finally {
-      setInstalling(false);
-    }
-  }, []);
+  const [showGuide, setShowGuide] = useState(false);
+  const [installInstructions, setInstallInstructions] = useState('');
 
   useEffect(() => {
-    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const updateStandalone = () => {
-      const standalone = isStandaloneMode();
-      setIsStandalone(standalone);
-      if (standalone) setIsVisible(false);
-      return standalone;
-    };
+    if (detectInstalledState()) {
+      queueMicrotask(() => setIsInstalled(true));
+      return;
+    }
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
     };
 
-    const handleManualInstallRequest = () => {
-      if (updateStandalone()) return;
-      if (deferredPrompt) {
-        void launchNativePrompt(deferredPrompt);
-      } else {
-        setIsVisible(true);
-      }
-    };
-
     const handleAppInstalled = () => {
-      setIsVisible(false);
+      window.localStorage.setItem(INSTALLED_KEY, 'true');
+      setIsInstalled(true);
+      setShowGuide(false);
       setDeferredPrompt(null);
-      setIsStandalone(true);
-      window.localStorage.setItem(DISMISSAL_KEY, 'true');
     };
-
-    const handleDisplayModeChange = () => {
-      updateStandalone();
-    };
-
-    const standalone = isStandaloneMode();
-    const detectedPlatform = getInstallPlatform();
-    const dismissed = window.localStorage.getItem(DISMISSAL_KEY) === 'true';
-    queueMicrotask(() => {
-      setIsStandalone(standalone);
-      setPlatform(detectedPlatform);
-      if (!standalone && !dismissed && isMobileDevice()) {
-        fallbackTimer = setTimeout(() => setIsVisible(true), 2500);
-      }
-    });
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener(MANUAL_INSTALL_EVENT, handleManualInstallRequest);
     window.addEventListener('appinstalled', handleAppInstalled);
-    standaloneQuery.addEventListener('change', handleDisplayModeChange);
 
     return () => {
-      if (fallbackTimer) clearTimeout(fallbackTimer);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener(MANUAL_INSTALL_EVENT, handleManualInstallRequest);
       window.removeEventListener('appinstalled', handleAppInstalled);
-      standaloneQuery.removeEventListener('change', handleDisplayModeChange);
     };
-  }, [deferredPrompt, launchNativePrompt]);
-
-  const dismissPermanently = () => {
-    window.localStorage.setItem(DISMISSAL_KEY, 'true');
-    setIsVisible(false);
-  };
+  }, []);
 
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      await launchNativePrompt(deferredPrompt);
-    } else {
-      setIsVisible(true);
+    if (!deferredPrompt) {
+      setInstallInstructions(getInstallInstructions());
+      setShowGuide(true);
+      return;
+    }
+
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
+      if (outcome === 'dismissed') {
+        setInstallInstructions(getInstallInstructions());
+        setShowGuide(true);
+      }
+    } catch (error) {
+      console.error('Unable to open the native app installation prompt:', error);
+      setInstallInstructions(getInstallInstructions());
+      setShowGuide(true);
     }
   };
 
-  if (isStandalone || !isVisible) return null;
-
-  const instructions =
-    platform === 'ios'
-      ? "Tap Share ⎋ and select 'Add to Home Screen ⊞'."
-      : platform === 'android'
-        ? "Tap the 3 dots (⋮) in Chrome top right and tap 'Install app' or 'Add to Home screen'."
-        : 'Use your browser menu to install or add Local Deals Hub to your home screen.';
+  if (isInstalled) return null;
 
   return (
-    <aside
-      aria-label="Install Local Deals Hub"
-      className="fixed bottom-20 left-4 right-4 z-50 rounded-2xl border border-blue-500/40 bg-[#0e1628]/95 p-4 shadow-2xl backdrop-blur sm:bottom-24 sm:left-auto sm:right-6 sm:w-96"
-    >
+    <>
       <button
         type="button"
-        onClick={dismissPermanently}
-        aria-label="Dismiss install prompt"
-        className="absolute right-3 top-3 rounded-md p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
+        onClick={handleInstallClick}
+        className="shrink-0 flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/20"
       >
-        ✕
+        <span>📲</span>
+        <span>Install App</span>
       </button>
-      <div className="pr-6">
-        <p className="text-sm font-semibold text-white">Install Local Deals Hub</p>
-        <p className="mt-2 text-xs leading-relaxed text-slate-300">{instructions}</p>
-        {deferredPrompt && (
-          <button
-            type="button"
-            onClick={handleInstallClick}
-            disabled={installing}
-            className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-wait disabled:opacity-60"
+      {showGuide && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#070b14]/80 p-4 backdrop-blur-sm"
+          onClick={() => setShowGuide(false)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="install-guide-title"
+            className="relative w-full max-w-sm rounded-2xl border border-blue-500/40 bg-[#0e1628] p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
           >
-            {installing ? 'Installing…' : 'Install App'}
-          </button>
-        )}
-      </div>
-    </aside>
+            <button
+              type="button"
+              onClick={() => setShowGuide(false)}
+              aria-label="Close install instructions"
+              className="absolute right-3 top-3 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              ✕
+            </button>
+            <h2 id="install-guide-title" className="pr-8 text-base font-bold text-white">
+              Install Local Deals Hub
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">
+              {installInstructions || getInstallInstructions()}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowGuide(false)}
+              className="mt-5 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+            >
+              Got it
+            </button>
+          </section>
+        </div>
+      )}
+    </>
   );
 }

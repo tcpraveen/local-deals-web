@@ -4,10 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DEALS, LOCATIONS, getDirectionsUrl, Deal } from "@/lib/deals";
 import InstallPrompt from "./InstallPrompt";
-import BrandLogo from "./BrandLogo";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
-import { requestInstallGuide } from "./InstallPrompt";
 
 function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -94,37 +92,33 @@ export default function StorefrontPage() {
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
       {showSplash && <SplashScreen onFinish={finishSplash} />}
       {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-20 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <BrandLogo size={38} />
-            <div className="min-w-0">
-              <h1 className="flex flex-wrap items-center gap-2 text-lg font-black tracking-tight text-white">
-                <span>Local Deals <span className="text-blue-400">Hub</span></span>
-                <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-900/40 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded-full">
-                  Live GPS
-                </span>
-              </h1>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Verified local retail discovery • Thoothukudi &amp; Authoor
-              </p>
+      <header className="border-b border-slate-800/80 bg-[#090e1c]/95 backdrop-blur-md sticky top-0 z-30 px-3.5 sm:px-8 py-3 transition">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 text-sm font-black text-white">
+                L
+              </div>
+              <span className="whitespace-nowrap font-black text-base sm:text-lg tracking-tight text-white">
+                Local Deals <span className="text-blue-400">Hub</span>
+              </span>
+              <span className="shrink-0 rounded-full border border-blue-700/50 bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300">
+                Live GPS
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <InstallPrompt />
+              <Link
+                href="/merchant"
+                className="whitespace-nowrap rounded-xl border border-slate-700/80 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200"
+              >
+                Merchant Portal
+              </Link>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={requestInstallGuide}
-              className="rounded-lg border border-emerald-500/40 bg-emerald-600/15 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-600/30"
-            >
-              📲 Install App
-            </button>
-            <Link
-              href="/merchant"
-              className="rounded-lg border border-blue-500/40 bg-blue-600/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:border-blue-400/60 hover:bg-blue-600/30"
-            >
-              Merchant Portal
-            </Link>
-          </div>
+          <p className="mt-1 truncate text-[11px] text-slate-400">
+            Verified local retail discovery • Thoothukudi &amp; Authoor
+          </p>
         </div>
       </header>
 
@@ -300,7 +294,6 @@ export default function StorefrontPage() {
           })}
         </section>
       </div>
-      <InstallPrompt />
       <AIAssistant coords={coords} />
     </main>
   );
