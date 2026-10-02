@@ -5,12 +5,12 @@ import Link from "next/link";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import {
   Deal,
-  getDirectionsUrl,
   isVerifiedActiveDeal,
   LOCATIONS,
   normalizeDeal,
   VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
+import { calculateDistance } from "@/lib/geo";
 import InstallPrompt from "./InstallPrompt";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
@@ -19,23 +19,8 @@ function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function calculateHaversineDistanceKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371; // Earth's mean radius in km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+function getDirectionsUrl(destLat: number, destLng: number): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`;
 }
 
 function estimateTravelDuration(distanceKm: number): string {
@@ -159,8 +144,8 @@ export default function StorefrontPage() {
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 10000
+        maximumAge: 0,
+        timeout: 15000
       }
     );
 
@@ -267,7 +252,7 @@ export default function StorefrontPage() {
             </p>
           ) : filteredDeals.map((deal) => {
             const distance = coords && typeof deal.lat === 'number' && typeof deal.lng === 'number'
-              ? calculateHaversineDistanceKm(coords.lat, coords.lng, deal.lat, deal.lng)
+              ? calculateDistance(coords.lat, coords.lng, deal.lat, deal.lng)
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
             const voucherCode = claimedDeals[deal.id];
