@@ -7,6 +7,7 @@ import InstallPrompt from "./InstallPrompt";
 import BrandLogo from "./BrandLogo";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
+import { requestInstallGuide } from "./InstallPrompt";
 
 function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -109,12 +110,21 @@ export default function StorefrontPage() {
               </p>
             </div>
           </div>
-          <Link
-            href="/merchant"
-            className="shrink-0 rounded-lg border border-blue-500/40 bg-blue-600/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:border-blue-400/60 hover:bg-blue-600/30"
-          >
-            Merchant Portal
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={requestInstallGuide}
+              className="rounded-lg border border-emerald-500/40 bg-emerald-600/15 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-600/30"
+            >
+              📲 Install App
+            </button>
+            <Link
+              href="/merchant"
+              className="rounded-lg border border-blue-500/40 bg-blue-600/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:border-blue-400/60 hover:bg-blue-600/30"
+            >
+              Merchant Portal
+            </Link>
+          </div>
         </div>
       </header>
 

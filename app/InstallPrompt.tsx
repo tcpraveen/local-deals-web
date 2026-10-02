@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -10,101 +10,148 @@ interface BeforeInstallPromptEvent extends Event {
   }>;
 }
 
-type PromptView = 'checking' | 'hidden' | 'ios' | 'install';
+type InstallPlatform = 'ios' | 'android' | 'other';
 
-const DISMISSAL_KEY = 'local-deals-install-prompt-dismissed';
+const DISMISSAL_KEY = 'ldh_pwa_dismissed';
+const MANUAL_INSTALL_EVENT = 'ldh:show-install-guide';
+
+function isStandaloneMode(): boolean {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+  );
+}
+
+function getInstallPlatform(): InstallPlatform {
+  const userAgent = navigator.userAgent;
+  const isIos =
+    /iPad|iPhone|iPod/i.test(userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIos) return 'ios';
+  if (/Android/i.test(userAgent)) return 'android';
+  return 'other';
+}
+
+function isMobileDevice(): boolean {
+  return (
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
+export function requestInstallGuide(): void {
+  window.dispatchEvent(new Event(MANUAL_INSTALL_EVENT));
+}
 
 export default function InstallPrompt() {
-  const [view, setView] = useState<PromptView>('checking');
+  const [isVisible, setIsVisible] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [platform, setPlatform] = useState<InstallPlatform>('other');
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
 
+  const launchNativePrompt = useCallback(async (promptEvent: BeforeInstallPromptEvent) => {
+    setInstalling(true);
+    try {
+      await promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      setDeferredPrompt(null);
+      if (outcome === 'accepted') setIsVisible(false);
+    } catch (error) {
+      console.error('Unable to show the app installation prompt:', error);
+      setIsVisible(true);
+    } finally {
+      setInstalling(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let mounted = true;
     const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const isStandalone = () =>
-      standaloneQuery.matches ||
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-
-    const isIosSafari = () => {
-      const userAgent = navigator.userAgent;
-      const isIosDevice =
-        /iPad|iPhone|iPod/i.test(userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isSafari =
-        /Safari/i.test(userAgent) &&
-        !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
-      return isIosDevice && isSafari;
-    };
-
-    const updateView = () => {
-      if (isStandalone() || window.localStorage.getItem(DISMISSAL_KEY) === 'true') {
-        setView('hidden');
-      } else {
-        setView(isIosSafari() ? 'ios' : 'hidden');
-      }
+    const updateStandalone = () => {
+      const standalone = isStandaloneMode();
+      setIsStandalone(standalone);
+      if (standalone) setIsVisible(false);
+      return standalone;
     };
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
-      const installEvent = event as BeforeInstallPromptEvent;
-      setDeferredPrompt(installEvent);
-      if (
-        !isStandalone() &&
-        window.localStorage.getItem(DISMISSAL_KEY) !== 'true'
-      ) {
-        setView('install');
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleManualInstallRequest = () => {
+      if (updateStandalone()) return;
+      if (deferredPrompt) {
+        void launchNativePrompt(deferredPrompt);
+      } else {
+        setIsVisible(true);
       }
+    };
+
+    const handleAppInstalled = () => {
+      setIsVisible(false);
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+      window.localStorage.setItem(DISMISSAL_KEY, 'true');
     };
 
     const handleDisplayModeChange = () => {
-      if (isStandalone()) setView('hidden');
+      updateStandalone();
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    standaloneQuery.addEventListener('change', handleDisplayModeChange);
+    const standalone = isStandaloneMode();
+    const detectedPlatform = getInstallPlatform();
+    const dismissed = window.localStorage.getItem(DISMISSAL_KEY) === 'true';
     queueMicrotask(() => {
-      if (mounted) updateView();
+      setIsStandalone(standalone);
+      setPlatform(detectedPlatform);
+      if (!standalone && !dismissed && isMobileDevice()) {
+        fallbackTimer = setTimeout(() => setIsVisible(true), 2500);
+      }
     });
 
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener(MANUAL_INSTALL_EVENT, handleManualInstallRequest);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    standaloneQuery.addEventListener('change', handleDisplayModeChange);
+
     return () => {
-      mounted = false;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener(MANUAL_INSTALL_EVENT, handleManualInstallRequest);
+      window.removeEventListener('appinstalled', handleAppInstalled);
       standaloneQuery.removeEventListener('change', handleDisplayModeChange);
     };
-  }, []);
-
-  if (view === 'checking' || view === 'hidden') return null;
+  }, [deferredPrompt, launchNativePrompt]);
 
   const dismissPermanently = () => {
     window.localStorage.setItem(DISMISSAL_KEY, 'true');
-    setView('hidden');
+    setIsVisible(false);
   };
 
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    setInstalling(true);
-    try {
-      await deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      setDeferredPrompt(null);
-      if (outcome === 'accepted') {
-        window.localStorage.setItem(DISMISSAL_KEY, 'true');
-      }
-      setView('hidden');
-    } catch (error) {
-      console.error('Unable to show the app installation prompt:', error);
-      setView('hidden');
-    } finally {
-      setInstalling(false);
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      await launchNativePrompt(deferredPrompt);
+    } else {
+      setIsVisible(true);
     }
   };
+
+  if (isStandalone || !isVisible) return null;
+
+  const instructions =
+    platform === 'ios'
+      ? "Tap Share ⎋ and select 'Add to Home Screen ⊞'."
+      : platform === 'android'
+        ? "Tap the 3 dots (⋮) in Chrome top right and tap 'Install app' or 'Add to Home screen'."
+        : 'Use your browser menu to install or add Local Deals Hub to your home screen.';
 
   return (
     <aside
       aria-label="Install Local Deals Hub"
-      className="fixed bottom-20 left-4 right-4 z-40 rounded-2xl border border-blue-500/40 bg-[#0e1628]/95 p-4 shadow-2xl backdrop-blur sm:bottom-24 sm:left-auto sm:right-6 sm:w-96"
+      className="fixed bottom-20 left-4 right-4 z-50 rounded-2xl border border-blue-500/40 bg-[#0e1628]/95 p-4 shadow-2xl backdrop-blur sm:bottom-24 sm:left-auto sm:right-6 sm:w-96"
     >
       <button
         type="button"
@@ -114,43 +161,20 @@ export default function InstallPrompt() {
       >
         ✕
       </button>
-      {view === 'ios' ? (
-        <div className="pr-6">
-          <p className="text-sm font-semibold text-white">Get Local Deals Hub on your Home Screen</p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-300">
-            Tap Share ⎋ and select Add to Home Screen ⊞ for instant deals.
-          </p>
+      <div className="pr-6">
+        <p className="text-sm font-semibold text-white">Install Local Deals Hub</p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-300">{instructions}</p>
+        {deferredPrompt && (
           <button
             type="button"
-            onClick={() => setView('hidden')}
-            className="mt-3 text-xs font-medium text-blue-300 transition hover:text-blue-200"
-          >
-            Later
-          </button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 pr-6">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white">Take Local Deals Hub with you</p>
-            <p className="mt-1 text-xs text-slate-300">Install for quick access to neighborhood offers.</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleInstall}
+            onClick={handleInstallClick}
             disabled={installing}
-            className="shrink-0 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-wait disabled:opacity-60"
+            className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-wait disabled:opacity-60"
           >
             {installing ? 'Installing…' : 'Install App'}
           </button>
-          <button
-            type="button"
-            onClick={() => setView('hidden')}
-            className="shrink-0 text-xs font-medium text-slate-300 transition hover:text-white"
-          >
-            Later
-          </button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }
