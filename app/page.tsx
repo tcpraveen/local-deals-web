@@ -1,439 +1,270 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
-import Link from 'next/link';
-import { Deal, FALLBACK_LOCATIONS, getDealDistance, getVouchersLeft, isDealActive, normalizeDeal, SAMPLE_DEALS, slugifyStoreName } from '@/lib/deals';
-import { isStoreOpen } from '@/lib/storeHours';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { DEALS, LOCATIONS, getDirectionsUrl, Deal } from "@/lib/deals";
+import InstallPrompt from "./InstallPrompt";
 
-const CATEGORIES = ['All', 'Fashion', 'Services', 'Venues', 'Food', 'Retail'];
-const LOCATIONS = FALLBACK_LOCATIONS;
+function createVoucherCode(): string {
+  return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
+}
 
-export default function Storefront() {
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedLocation, setSelectedLocation] = useState('All');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<number[]>([]);
-  const [onlyVerified, setOnlyVerified] = useState(false);
-  const [showSavedOnly, setShowSavedOnly] = useState(false);
-  const [locationStatus, setLocationStatus] = useState<'checking' | 'available' | 'fallback'>('fallback');
+function calculateHaversineDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371; // Earth's mean radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
-  async function fetchDeals() {
-    if (!isSupabaseConfigured) {
-      setDeals(SAMPLE_DEALS.filter(isDealActive));
-      setLoading(false);
-      return;
-    }
+function estimateTravelDuration(distanceKm: number): string {
+  if (distanceKm < 0.3) return "At location (<1 min)";
+  const averageSpeedKmH = 32; // Realistic local transit/traffic average
+  const totalMinutes = Math.round((distanceKm / averageSpeedKmH) * 60);
 
-    try {
-      setLoading(true);
-      const { data: deals, error } = await supabase
-        .from('deals')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setDeals((deals || []).map((deal: Record<string, unknown>) => normalizeDeal(deal)).filter(isDealActive));
-    } catch (err) {
-      console.error('Error fetching deals:', err);
-      setDeals(SAMPLE_DEALS.filter(isDealActive));
-    } finally {
-      setLoading(false);
-    }
+  if (totalMinutes < 60) {
+    return `~${totalMinutes} min drive`;
   }
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return `~${hours}h ${mins}m drive`;
+}
+
+export default function StorefrontPage() {
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [selectedArea, setSelectedArea] = useState<string>("All");
+  const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void fetchDeals();
-    });
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => setLocationStatus('available'),
-        () => setLocationStatus('fallback'),
-        { timeout: 5000 }
-      );
-    }
-
-    const saved = localStorage.getItem('ldh_favorites');
-    if (saved) {
-      queueMicrotask(() => {
-        try {
-          const parsed: unknown = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.every((id) => typeof id === 'number')) {
-            setFavorites(parsed);
-          }
-        } catch (error) {
-          console.error('Failed to parse favorites:', error);
-        }
-      });
-    }
-  }, []);
-
-  const toggleFavorite = (id: number) => {
-    setFavorites((prev) => {
-      const updated = prev.includes(id) ? prev.filter((favId) => favId !== id) : [...prev, id];
-      localStorage.setItem('ldh_favorites', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const handleClaimVoucher = async (deal: Deal) => {
-    const voucherCode = `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    try {
-      await supabase
-        .from('deals')
-        .update({ inquiries_count: (deal.inquiries_count || 0) + 1 })
-        .eq('id', deal.id);
-    } catch (err) {
-      console.error('Error logging claim telemetry:', err);
-    }
-
-    const cleanPhone = (deal.phone || '').replace(/[^0-9]/g, '');
-    const message = encodeURIComponent(
-      `Hi ${deal.business}, I found your offer '${deal.title}' on Local Deals Hub! ` +
-      `Here is my voucher code: *${voucherCode}*. Is this available if I visit today?`
-    );
-
-    window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
-  };
-
-  const handleOpenMap = (deal: Deal) => {
-    if (deal.google_maps_url) {
-      window.open(deal.google_maps_url, '_blank');
+    if (!navigator.geolocation) {
+      queueMicrotask(() => setGpsError("Geolocation is not supported by your browser."));
       return;
     }
-    const query = encodeURIComponent(
-      `${deal.business}, ${deal.store_address || ''} ${deal.location || 'Thoothukudi'}`
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setCoords({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        });
+        setGpsError(null);
+      },
+      (error) => {
+        setGpsError(error.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
+      }
     );
-    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  const handleClaim = (deal: Deal) => {
+    if (claimedDeals[deal.id]) return;
+    const uniqueCode = createVoucherCode();
+    setClaimedDeals((prev) => ({ ...prev, [deal.id]: uniqueCode }));
   };
 
-  const filteredDeals = deals.filter((deal) => {
-    const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
-    const matchesLocation = selectedLocation === 'All' || deal.location === selectedLocation;
-    const matchesVerified = !onlyVerified || Boolean(deal.is_verified_merchant);
-    const matchesSaved = !showSavedOnly || favorites.includes(deal.id);
-    const matchesSearch =
-      deal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      deal.business.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (deal.location && deal.location.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    return matchesCategory && matchesLocation && matchesVerified && matchesSaved && matchesSearch;
-  });
+  const filteredDeals = DEALS.filter(
+    (deal) => selectedArea === "All" || deal.location === selectedArea
+  );
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white">
-      {/* Navigation Header */}
-      <header className="border-b border-slate-800 bg-[#0a101d]/90 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl">🏷️</span>
-            <span className="font-bold text-white tracking-tight text-sm sm:text-base">
-              Local Deals Hub
-            </span>
-          </Link>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => setShowSavedOnly((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
-                showSavedOnly
-                  ? 'bg-rose-500/20 border-rose-500/50 text-rose-400'
-                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
-              }`}
-            >
-              <span>❤️</span>
-              <span>{favorites.length}</span>
-            </button>
-
-            <Link
-              href="/merchant"
-              className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm px-3.5 py-1.5 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center gap-1.5"
-            >
-              <span>🏪</span>
-              <span>Merchant Portal</span>
-            </Link>
+    <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-20 px-6 py-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
+              <span className="text-blue-500">Local Deals Hub</span>
+              <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-900/40 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded-full">
+                Live GPS
+              </span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Verified local merchants across Thoothukudi & Authoor
+            </p>
           </div>
+          <Link
+            href="/merchant"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 transition"
+          >
+            Merchant Portal
+          </Link>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
-        {/* Hero Headline */}
-        <section className="text-center space-y-3 max-w-3xl mx-auto">
-          <span className="inline-block px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-bold uppercase tracking-wider">
-            100% Genuine Local Offers
+      <div className="max-w-5xl mx-auto p-6 space-y-6">
+        {/* GPS Live Tracking Notification Bar */}
+        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  coords ? "bg-emerald-400" : "bg-amber-400"
+                }`}
+              />
+              <span
+                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                  coords ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+              />
+            </span>
+            <span className="text-slate-300 font-medium">
+              {coords
+                ? `GPS Active: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`
+                : gpsError
+                ? `Location Permission Required (${gpsError})`
+                : "Acquiring live satellite coordinates..."}
+            </span>
+          </div>
+          <span className="text-slate-400 font-mono">
+            {coords ? "Live distance dynamically updates as you travel" : "Allow browser location for live ETA"}
           </span>
-          <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
-            Discover Verified Local Discounts & Services
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-            Shop directly from verified neighborhood businesses with interactive map directions and
-            instant WhatsApp voucher redemption.
-          </p>
         </section>
 
-        {/* Search and Filters Bar */}
-        <section className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-center gap-2.5 max-w-2xl mx-auto">
-            <input
-              type="text"
-              placeholder="Search deals, stores, or areas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0e1626] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 shadow-inner"
-            />
+        {/* Location Filtering Tabs */}
+        <nav aria-label="Filter stores by area" className="flex items-center gap-2 overflow-x-auto pb-1">
+          {LOCATIONS.map((loc) => (
             <button
-              onClick={() => setOnlyVerified((prev) => !prev)}
-              className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 flex-shrink-0 ${
-                onlyVerified
-                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                  : 'bg-[#0e1626] border-slate-800 text-slate-400 hover:text-white'
+              key={loc}
+              onClick={() => setSelectedArea(loc)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                selectedArea === loc
+                  ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
+                  : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
               }`}
             >
-              ✓ Verified
+              {loc === "All" ? "All Outlets" : loc}
             </button>
-          </div>
+          ))}
+        </nav>
 
-          {/* Categories Filter Pills */}
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-            {CATEGORIES.map((category) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
-                  selectedCategory === category
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                    : 'bg-[#0e1626] border border-slate-800 text-slate-400 hover:text-white'
-                }`}
+        {/* Deals Listing */}
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {filteredDeals.map((deal) => {
+            const distance = coords
+              ? calculateHaversineDistanceKm(coords.lat, coords.lng, deal.lat, deal.lng)
+              : null;
+            const eta = distance !== null ? estimateTravelDuration(distance) : null;
+            const voucherCode = claimedDeals[deal.id];
+
+            return (
+              <article
+                key={deal.id}
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition"
               >
-                {category}
-              </button>
-            ))}
-          </div>
+                <div>
+                  {/* Badges */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                      {deal.location}
+                    </span>
+                    <span className="text-xs font-black px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">
+                      {deal.discount}
+                    </span>
+                  </div>
 
-          {/* Locations Filter Pills */}
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-slate-500 font-medium mr-1">Area:</span>
-            <select
-              value={selectedLocation}
-              onChange={(event) => setSelectedLocation(event.target.value)}
-              aria-label="Filter deals by area"
-              className="rounded-lg border border-slate-800 bg-[#0e1626] px-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500"
-            >
-              {LOCATIONS.map((loc) => <option key={loc} value={loc}>{loc}</option>)}
-            </select>
-            {LOCATIONS.map((loc) => (
-              <button
-                key={loc}
-                onClick={() => setSelectedLocation(loc)}
-                className={`px-3 py-1 rounded-lg text-[11px] font-medium transition ${
-                  selectedLocation === loc
-                    ? 'bg-slate-700 text-white'
-                    : 'bg-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {loc}
-              </button>
-            ))}
-          </div>
-        </section>
+                  {/* Title & Shop Details */}
+                  <h2 className="text-xl font-black mt-3 text-white">{deal.business}</h2>
+                  <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
 
-        {/* Deal Cards Grid */}
-        <section>
-          {loading ? (
-            <div className="py-20 text-center text-slate-500 text-xs sm:text-sm">
-              Finding active neighborhood discounts...
-            </div>
-          ) : filteredDeals.length === 0 ? (
-            <div className="py-20 text-center space-y-3 bg-[#0e1626]/40 border border-slate-800 rounded-3xl p-8">
-              <p className="text-slate-400 text-sm">No promotions match your filter criteria.</p>
-              <button
-                onClick={() => {
-                  setSelectedCategory('All');
-                  setSelectedLocation('All');
-                  setSearchQuery('');
-                  setOnlyVerified(false);
-                  setShowSavedOnly(false);
-                }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition"
-              >
-                Reset All Filters
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredDeals.map((deal) => {
-                const open = isStoreOpen(deal.opening_time || '00:00', deal.closing_time || '23:59');
-                const isFav = favorites.includes(deal.id);
-
-                return (
-                  <div
-                    key={deal.id}
-                    className="bg-[#0e1626] border border-slate-800 rounded-3xl overflow-hidden flex flex-col shadow-xl hover:border-slate-700 transition group"
-                  >
-                    {/* Media Header */}
-                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
-                      <img
-                        src={deal.image}
-                        alt={deal.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                      />
-
-                      {/* Top Badges */}
-                      <div className="absolute top-3 left-3 flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-semibold border border-white/10">
-                          {deal.category}
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border backdrop-blur-md ${
-                            open
-                              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                              : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                          }`}
-                        >
-                          {open ? '🟢 Open Now' : '🔴 Closed'}
-                        </span>
-                      </div>
-
-                      <div className="absolute top-3 right-3 flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-rose-600 text-white text-[11px] font-black shadow-lg">
-                          {deal.discount}
-                        </span>
-                      </div>
-
-                      {/* Favorite Button */}
-                      <button
-                        onClick={() => toggleFavorite(deal.id)}
-                        className={`absolute bottom-3 right-3 p-2 rounded-full backdrop-blur-md transition ${
-                          isFav
-                            ? 'bg-rose-600 text-white'
-                            : 'bg-black/60 text-slate-300 hover:text-white'
-                        }`}
-                      >
-                        {isFav ? '❤️' : '🤍'}
-                      </button>
+                  {/* Live Travel Distance / Navigation Status */}
+                  <div className="mt-4 p-3.5 bg-slate-950/90 rounded-xl border border-slate-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">
+                        Calculated Distance
+                      </span>
+                      <span className="text-sm font-black text-slate-100">
+                        {distance !== null ? `${distance.toFixed(2)} km away` : "Calculating..."}
+                      </span>
                     </div>
-
-                    {/* Content Section */}
-                    <div className="p-5 flex flex-col flex-1 justify-between space-y-4">
-                      <div className="space-y-2">
-                        {/* Merchant Identity & Map Trigger */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <img
-                              src={
-                                deal.logo_url ||
-                                'https://cdn-icons-png.flaticon.com/512/869/869636.png'
-                              }
-                              alt={deal.business}
-                              className="w-6 h-6 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                            />
-                            <Link href={`/store/${slugifyStoreName(deal.business)}`} className="text-xs font-bold text-slate-300 truncate hover:text-blue-400">
-                              {deal.business}
-                            </Link>
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold flex-shrink-0">
-                              ✓ Verified
-                            </span>
-                          </div>
-
-                          <button
-                            onClick={() => handleOpenMap(deal)}
-                            className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 flex-shrink-0"
-                          >
-                            📍 Map
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                          <span className="px-2 py-1 rounded-lg bg-slate-800 text-slate-200">📍 {getDealDistance(deal)} km</span>
-                          <span>🚗 {Math.max(3, Math.round(getDealDistance(deal) * 3))} min</span>
-                          <span>🚶 {Math.max(6, Math.round(getDealDistance(deal) * 12))} min</span>
-                        </div>
-
-                        {/* Ratings */}
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className="text-amber-400 font-bold">
-                            ★ {deal.rating || '4.8'}
-                          </span>
-                          <span className="text-slate-500 text-[11px]">
-                            ({deal.review_count || 12} reviews)
-                          </span>
-                        </div>
-
-                        {/* Title & Description */}
-                        <div>
-                          <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition leading-snug">
-                            {deal.title}
-                          </h3>
-                          <p className="text-[11px] text-slate-400 line-clamp-2 mt-1">
-                            {deal.description ||
-                              'Visit the store counter or claim voucher on WhatsApp to redeem offer.'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Pricing & Claim Actions */}
-                      <div className="space-y-3 pt-2 border-t border-slate-800/80">
-                        {(deal.scarcity_text || deal.scarcityText) && (
-                          <div className="inline-flex rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-400 font-medium text-xs">
-                            {deal.scarcity_text || deal.scarcityText}
-                          </div>
-                        )}
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-base font-black text-emerald-400">
-                            ₹{deal.deal_price || deal.original_price || 'Special'}
-                          </span>
-                          {deal.original_price && deal.deal_price && (
-                            <span className="text-xs text-slate-500 line-through">
-                              ₹{deal.original_price}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                          <span>🏬</span>
-                          <span>
-                            {deal.store_address || `${deal.location || 'Local area'}, Thoothukudi`}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-amber-400 font-semibold">🔥 {getVouchersLeft(deal)} vouchers left</span>
-                          {locationStatus === 'fallback' && <span className="text-slate-500">Area filter enabled</span>}
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-1">
-                          <a
-                            href={deal.phone ? `tel:${deal.phone}` : undefined}
-                            aria-disabled={!deal.phone}
-                            className={`px-3 py-2.5 rounded-xl text-xs font-bold transition ${deal.phone ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500 pointer-events-none'}`}
-                          >
-                            ☎ Call
-                          </a>
-                          <button
-                            onClick={() => handleClaimVoucher(deal)}
-                            className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition flex items-center justify-center gap-1.5"
-                          >
-                            <span>Claim Voucher</span>
-                            <span>→</span>
-                          </button>
-                        </div>
-                      </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">
+                        Estimated Transit
+                      </span>
+                      <span className="text-xs font-semibold text-blue-400">
+                        {eta || "Waiting for GPS"}
+                      </span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </main>
 
-      <footer className="border-t border-slate-900 py-8 text-center text-xs text-slate-600">
-        Local Deals Hub • Bridging neighborhood merchants with direct digital customers
-      </footer>
-    </div>
+                  {/* Pricing Overview */}
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-2xl font-black text-white">₹{deal.price}</span>
+                    <span className="text-xs text-slate-500 line-through">₹{deal.originalPrice}</span>
+                    <span className="text-[11px] font-bold text-amber-400 ml-auto">
+                      {deal.vouchersCount} vouchers left
+                    </span>
+                  </div>
+
+                  {/* Voucher Claim Box */}
+                  {voucherCode && (
+                    <div className="mt-4 p-3 rounded-xl bg-blue-950/40 border border-blue-600/40 text-center">
+                      <p className="text-[11px] font-semibold text-blue-300">Your Exclusive Voucher Code</p>
+                      <p className="text-lg font-mono font-black text-white tracking-widest mt-0.5">
+                        {voucherCode}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-1">Present this counter-side at checkout</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Direct Actions */}
+                <div className="mt-6 pt-4 border-t border-slate-800/70 flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <a
+                      href={`tel:${deal.phone}`}
+                      className="flex-1 text-center py-2.5 px-3 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 text-slate-200 text-xs font-bold transition"
+                    >
+                      Call Shop
+                    </a>
+                    <button
+                      onClick={() => handleClaim(deal)}
+                      disabled={!!voucherCode}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
+                        voucherCode
+                          ? "bg-slate-800 text-slate-400 cursor-default"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20"
+                      }`}
+                    >
+                      {voucherCode ? "Claimed" : "Claim Voucher"}
+                    </button>
+                  </div>
+
+                  {/* Exact Turn-by-Turn GPS Navigation */}
+                  <a
+                    href={getDirectionsUrl(deal.lat, deal.lng)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
+                  >
+                    <span>Open Exact Turn-by-Turn Navigation</span>
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      </div>
+      <InstallPrompt />
+    </main>
   );
 }

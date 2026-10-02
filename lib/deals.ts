@@ -3,6 +3,10 @@ export interface Deal {
   user_id?: string;
   title: string;
   business: string;
+  price?: number | string;
+  originalPrice?: number | string;
+  vouchersCount?: number;
+  address?: string;
   logo_url?: string;
   discount: string;
   original_price?: number | string;
@@ -30,6 +34,15 @@ export interface Deal {
   review_count?: number;
   vouchers_left?: number;
   voucher_limit?: number;
+}
+
+export interface StorefrontDeal extends Deal {
+  price: number | string;
+  originalPrice: number | string;
+  vouchersCount: number;
+  address: string;
+  lat: number;
+  lng: number;
 }
 
 export const SAMPLE_DEALS: Deal[] = [
@@ -81,6 +94,29 @@ export const SAMPLE_DEALS: Deal[] = [
   },
 ];
 
+const AREA_COORDINATES: Record<string, [number, number]> = {
+  'Main Bazaar': [8.81, 78.14],
+  'Anna Nagar': [8.812, 78.132],
+  'Beach Road': [8.818, 78.147],
+};
+
+export const DEALS: StorefrontDeal[] = SAMPLE_DEALS.filter(isDealActive).map((deal) => {
+  const [areaLat, areaLng] = AREA_COORDINATES[deal.location || ''] || [8.8053, 78.145];
+  return {
+    ...deal,
+    price: deal.deal_price ?? 'Special',
+    originalPrice: deal.original_price ?? deal.deal_price ?? 'Special',
+    vouchersCount: getVouchersLeft(deal),
+    address: deal.store_address || `${deal.location || 'Local area'}, Thoothukudi`,
+    lat: deal.lat ?? areaLat,
+    lng: deal.lng ?? areaLng,
+  };
+});
+
+export function getDirectionsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+}
+
 export function normalizeDeal(record: Record<string, unknown>): Deal {
   const rawBusiness = String(record.business || record.shop_name || 'Local merchant');
   const business = rawBusiness.toLowerCase() === 'mj taders' ? 'MJ TRADERS' : rawBusiness;
@@ -108,6 +144,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
 }
 
 export const FALLBACK_LOCATIONS = ['All', 'Main Bazaar', 'Anna Nagar', 'Beach Road'];
+export const LOCATIONS = FALLBACK_LOCATIONS;
 
 export function slugifyStoreName(name: string): string {
   return name

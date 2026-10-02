@@ -7,6 +7,12 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'Local Deals Hub — Best Neighborhood Discounts & Offers',
   description: 'Discover verified local deals, exclusive discounts, and connect directly on WhatsApp & phone.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Local Deals Hub',
+  },
   metadataBase: new URL('https://local-deals-web.vercel.app'),
   openGraph: {
     title: 'Local Deals Hub — Verified Neighborhood Offers & Discounts',

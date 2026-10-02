@@ -1,0 +1,22 @@
+{
+  "name": "Local Deals Hub",
+  "short_name": "LocalDeals",
+  "description": "Verified local retail discovery and neighborhood discounts across Thoothukudi & Authoor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#090e1c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}
