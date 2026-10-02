@@ -19,21 +19,30 @@ function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function getDirectionsUrl(destLat: number, destLng: number): string {
-  return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`;
+function getDirectionsUrl(
+  destLat: number | undefined,
+  destLng: number | undefined,
+  destinationName: string,
+  destinationAddress: string
+): string {
+  if (typeof destLat === 'number' && typeof destLng === 'number') {
+    return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&destination_place_id=&travelmode=driving`;
+  }
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    `${destinationName}, ${destinationAddress}`
+  )}`;
 }
 
 function estimateTravelDuration(distanceKm: number): string {
-  if (distanceKm < 0.3) return "At location (<1 min)";
-  const averageSpeedKmH = 32; // Realistic local transit/traffic average
-  const totalMinutes = Math.round((distanceKm / averageSpeedKmH) * 60);
-
-  if (totalMinutes < 60) {
-    return `~${totalMinutes} min drive`;
+  const roadDistanceKm = distanceKm * 1.35;
+  if (distanceKm < 1) {
+    const walkingMinutes = Math.max(1, Math.round((roadDistanceKm / 4.5) * 60));
+    return `~${walkingMinutes} min walk`;
   }
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  return `~${hours}h ${mins}m drive`;
+
+  const transitMinutes = Math.max(3, Math.round((roadDistanceKm / 25) * 60));
+  return `~${transitMinutes} min drive`;
 }
 
 const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
@@ -373,13 +382,12 @@ export default function StorefrontPage() {
 
                   {/* Exact Turn-by-Turn GPS Navigation */}
                   <a
-                    href={
-                      typeof deal.lat === 'number' && typeof deal.lng === 'number'
-                        ? getDirectionsUrl(deal.lat, deal.lng)
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                            `${deal.business}, ${deal.store_address || deal.location || ''}`
-                          )}`
-                    }
+                    href={getDirectionsUrl(
+                      deal.lat,
+                      deal.lng,
+                      deal.business,
+                      deal.address || deal.store_address || deal.location || ''
+                    )}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
