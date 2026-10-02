@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import {
@@ -10,7 +10,7 @@ import {
   normalizeDeal,
   VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
-import { calculateDistance } from "@/lib/geo";
+import { calculateDistance, getUserLocation } from "@/lib/geo";
 import InstallPrompt from "./InstallPrompt";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
@@ -19,18 +19,13 @@ function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function getDirectionsUrl(
-  destLat: number | undefined,
-  destLng: number | undefined,
-  destinationName: string,
-  destinationAddress: string
-): string {
-  if (typeof destLat === 'number' && typeof destLng === 'number') {
-    return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&destination_place_id=&travelmode=driving`;
+function getDirectionsUrl(deal: Deal): string {
+  if (typeof deal.lat === 'number' && typeof deal.lng === 'number') {
+    return `https://www.google.com/maps/dir/?api=1&destination=${deal.lat},${deal.lng}&destination_place_id=&travelmode=driving`;
   }
 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    `${destinationName}, ${destinationAddress}`
+    `${deal.business}, ${deal.address || deal.store_address || deal.location || ''}`
   )}`;
 }
 
@@ -93,7 +88,11 @@ export default function StorefrontPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [dealsLoading, setDealsLoading] = useState(true);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [locationStatus, setLocationStatus] = useState<
+    'gps_active' | 'manual_selected' | 'location_unavailable'
+  >('location_unavailable');
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const locationStatusRef = useRef(locationStatus);
   const [selectedArea, setSelectedArea] = useState<string>("All");
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
   const finishSplash = useCallback(() => setShowSplash(false), []);
@@ -135,21 +134,36 @@ export default function StorefrontPage() {
   }, []);
 
   useEffect(() => {
+    const setGpsActive = (position: GeolocationPosition) => {
+      if (locationStatusRef.current === 'manual_selected') return;
+      setCoords({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      });
+      locationStatusRef.current = 'gps_active';
+      setLocationStatus('gps_active');
+      setLocationError(null);
+    };
+
     if (!navigator.geolocation) {
-      queueMicrotask(() => setGpsError("Geolocation is not supported by your browser."));
+      queueMicrotask(() => setLocationError('Geolocation is not supported by this browser.'));
       return;
     }
 
     const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setCoords({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        });
-        setGpsError(null);
-      },
+      setGpsActive,
       (error) => {
-        setGpsError(error.message);
+        if (locationStatusRef.current !== 'manual_selected') {
+          locationStatusRef.current = 'location_unavailable';
+          setLocationStatus('location_unavailable');
+          setLocationError(
+            error.code === error.PERMISSION_DENIED
+              ? 'Device location permission is disabled.'
+              : error.code === error.TIMEOUT
+                ? 'Device location timed out.'
+                : 'Device location is currently unavailable.'
+          );
+        }
       },
       {
         enableHighAccuracy: true,
@@ -160,6 +174,41 @@ export default function StorefrontPage() {
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  const selectTown = (town: 'Authoor' | 'Thoothukudi') => {
+    const townCoordinates = town === 'Authoor'
+      ? { lat: 8.6256, lng: 78.0772 }
+      : { lat: 8.7642, lng: 78.1348 };
+    locationStatusRef.current = 'manual_selected';
+    setCoords(townCoordinates);
+    setLocationStatus('manual_selected');
+    setLocationError(null);
+  };
+
+  const retryGps = async () => {
+    locationStatusRef.current = 'location_unavailable';
+    setLocationStatus('location_unavailable');
+    setLocationError(null);
+    try {
+      const position = await getUserLocation();
+      locationStatusRef.current = 'gps_active';
+      setCoords(position);
+      setLocationStatus('gps_active');
+    } catch (error) {
+      locationStatusRef.current = 'location_unavailable';
+      setLocationStatus('location_unavailable');
+      const geoError = error as GeolocationPositionError;
+      setLocationError(
+        geoError.code === geoError.PERMISSION_DENIED
+          ? 'Device location permission is disabled.'
+          : geoError.code === geoError.TIMEOUT
+            ? 'Device location timed out.'
+            : error instanceof Error
+              ? error.message
+              : 'Device location is currently unavailable.'
+      );
+    }
+  };
 
   const handleClaim = (deal: Deal) => {
     if (claimedDeals[deal.id]) return;
@@ -186,7 +235,11 @@ export default function StorefrontPage() {
                 Local Deals <span className="text-blue-400">Hub</span>
               </span>
               <span className="shrink-0 rounded-full border border-blue-700/50 bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300">
-                Live GPS
+                {locationStatus === 'gps_active'
+                  ? 'Live GPS'
+                  : locationStatus === 'manual_selected'
+                    ? 'Town Selected'
+                    : 'GPS Needed'}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -205,34 +258,43 @@ export default function StorefrontPage() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto p-6 space-y-6">
-        {/* GPS Live Tracking Notification Bar */}
-        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <span className="relative flex h-2.5 w-2.5">
-              <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  coords ? "bg-emerald-400" : "bg-amber-400"
-                }`}
-              />
-              <span
-                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                  coords ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-              />
-            </span>
-            <span className="text-slate-300 font-medium">
-              {coords
-                ? `GPS Active: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`
-                : gpsError
-                ? `Location Permission Required (${gpsError})`
-                : "Acquiring live satellite coordinates..."}
-            </span>
-          </div>
-          <span className="text-slate-400 font-mono">
-            {coords ? "Live distance dynamically updates as you travel" : "Allow browser location for live ETA"}
-          </span>
+      {locationStatus !== 'gps_active' && (
+        <section className="mx-auto mt-3 flex max-w-5xl flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-100">
+          <span>📍 Enable device GPS or select your town for accurate distance:</span>
+          <button
+            type="button"
+            onClick={() => selectTown('Authoor')}
+            className={`rounded-lg border px-2.5 py-1 font-semibold transition ${
+              locationStatus === 'manual_selected' && coords?.lat === 8.6256
+                ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
+                : 'border-slate-600 bg-slate-900/70 text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            Authoor
+          </button>
+          <button
+            type="button"
+            onClick={() => selectTown('Thoothukudi')}
+            className={`rounded-lg border px-2.5 py-1 font-semibold transition ${
+              locationStatus === 'manual_selected' && coords?.lat === 8.7642
+                ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
+                : 'border-slate-600 bg-slate-900/70 text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            Thoothukudi
+          </button>
+          <button
+            type="button"
+            onClick={() => void retryGps()}
+            className="rounded-lg px-2 py-1 font-semibold text-emerald-300 underline-offset-2 hover:underline"
+          >
+            Enable GPS
+          </button>
+          {locationError && <span role="status" className="w-full text-amber-200/80">{locationError}</span>}
         </section>
+      )}
+
+      <div className="max-w-5xl mx-auto p-6 space-y-6">
 
         {/* Location Filtering Tabs */}
         <nav aria-label="Filter stores by area" className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -260,7 +322,8 @@ export default function StorefrontPage() {
               No verified deals currently active in this area. Check back soon!
             </p>
           ) : filteredDeals.map((deal) => {
-            const distance = coords && typeof deal.lat === 'number' && typeof deal.lng === 'number'
+            const hasLocation = locationStatus !== 'location_unavailable' && coords !== null;
+            const distance = hasLocation && typeof deal.lat === 'number' && typeof deal.lng === 'number'
               ? calculateDistance(coords.lat, coords.lng, deal.lat, deal.lng)
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
@@ -300,7 +363,7 @@ export default function StorefrontPage() {
                         Calculated Distance
                       </span>
                       <span className="text-sm font-black text-slate-100">
-                        {distance !== null ? `${distance.toFixed(2)} km away` : "Calculating..."}
+                        {distance !== null ? `${distance.toFixed(2)} km away` : "Enable GPS for ETA"}
                       </span>
                     </div>
                     <div className="text-right">
@@ -308,7 +371,7 @@ export default function StorefrontPage() {
                         Estimated Transit
                       </span>
                       <span className="text-xs font-semibold text-blue-400">
-                        {eta || "Waiting for GPS"}
+                        {eta || "Enable GPS for ETA"}
                       </span>
                     </div>
                   </div>
@@ -382,12 +445,7 @@ export default function StorefrontPage() {
 
                   {/* Exact Turn-by-Turn GPS Navigation */}
                   <a
-                    href={getDirectionsUrl(
-                      deal.lat,
-                      deal.lng,
-                      deal.business,
-                      deal.address || deal.store_address || deal.location || ''
-                    )}
+                    href={getDirectionsUrl(deal)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
