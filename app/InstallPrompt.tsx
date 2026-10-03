@@ -17,12 +17,21 @@ interface NavigatorWithStandalone extends Navigator {
 const INSTALLED_KEY = 'ldh_pwa_installed';
 
 function detectInstalledState(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as NavigatorWithStandalone).standalone === true ||
-    document.referrer.includes('android-app://') ||
-    window.localStorage.getItem(INSTALLED_KEY) === 'true'
-  );
+  try {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as NavigatorWithStandalone).standalone === true ||
+      document.referrer.includes('android-app://') ||
+      window.localStorage.getItem(INSTALLED_KEY) === 'true'
+    );
+  } catch (error) {
+    console.error('Unable to check whether the app is installed:', error);
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as NavigatorWithStandalone).standalone === true ||
+      document.referrer.includes('android-app://')
+    );
+  }
 }
 
 function getInstallInstructions(): string {
@@ -32,12 +41,13 @@ function getInstallInstructions(): string {
     (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
 
   if (isIos) {
-    return "Tap Share ⎋ and select 'Add to Home Screen ⊞'.";
+    return "Tap the Share icon ⎋ in Safari, then select 'Add to Home Screen ⊞'.";
   }
-  if (/Android/i.test(userAgent)) {
-    return "Tap the 3 dots (⋮) in Chrome top right and tap 'Install app' or 'Add to Home screen'.";
+  const isSafari = /Safari/i.test(userAgent) && !/(Chrome|CriOS|Edg|FxiOS|Firefox|OPR)/i.test(userAgent);
+  if (isSafari && /Macintosh|Mac OS X/i.test(userAgent)) {
+    return "In Safari, go to File > 'Add to Dock ⊞'.";
   }
-  return 'Open your browser menu and choose Install App or Add to Home Screen.';
+  return 'Use your browser menu (⋮) to Install app.';
 }
 
 export default function InstallPrompt() {
@@ -58,7 +68,11 @@ export default function InstallPrompt() {
     };
 
     const handleAppInstalled = () => {
-      window.localStorage.setItem(INSTALLED_KEY, 'true');
+      try {
+        window.localStorage.setItem(INSTALLED_KEY, 'true');
+      } catch (error) {
+        console.error('Unable to save installed app state:', error);
+      }
       setIsInstalled(true);
       setShowGuide(false);
       setDeferredPrompt(null);
@@ -84,7 +98,14 @@ export default function InstallPrompt() {
       await deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       setDeferredPrompt(null);
-      if (outcome === 'dismissed') {
+      if (outcome === 'accepted') {
+        try {
+          window.localStorage.setItem(INSTALLED_KEY, 'true');
+        } catch (error) {
+          console.error('Unable to save installed app state:', error);
+        }
+        setIsInstalled(true);
+      } else {
         setInstallInstructions(getInstallInstructions());
         setShowGuide(true);
       }
@@ -102,7 +123,7 @@ export default function InstallPrompt() {
       <button
         type="button"
         onClick={handleInstallClick}
-        className="shrink-0 flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/20"
+        className="px-2.5 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition flex items-center gap-1.5 shrink-0"
       >
         <span>📲</span>
         <span>Install App</span>
