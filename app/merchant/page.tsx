@@ -135,10 +135,12 @@ export default function MerchantPortal() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedResult, setScannedResult] = useState<string | null>(null);
   const [redeemSuccess, setRedeemSuccess] = useState(false);
+  const [scannerSession, setScannerSession] = useState(0);
   const [voucherCode, setVoucherCode] = useState('');
   const [redemptionError, setRedemptionError] = useState('');
   const [redemptionCount, setRedemptionCount] = useState(0);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scanInProgressRef = useRef(false);
 
   const [formData, setFormData] = useState<Partial<Deal>>({
     title: '',
@@ -188,45 +190,39 @@ export default function MerchantPortal() {
     const normalizedCode = code.trim().toUpperCase();
     setRedeemSuccess(false);
     setRedemptionError('');
-    if (!/^LDH-\d{4}$/.test(normalizedCode) || !user) {
-      setRedemptionError('Enter a valid voucher code in the LDH-1234 format.');
+    if (!/^LDH-(?:[A-Z0-9]+-)?[A-Z0-9]{4}$/.test(normalizedCode) || !user) {
+      setRedemptionError('Enter a valid voucher code such as LDH-1234 or LDH-VRC-1234.');
       return;
     }
 
     setScannedResult(normalizedCode);
-    const { data: existing, error: lookupError } = await withTimeout(
-      supabase
-        .from('redemptions')
-        .select('id')
-        .eq('voucher_code', normalizedCode)
-        .eq('merchant_id', user.id)
-        .maybeSingle(),
-      3000
-    );
+    try {
+      const { data: redeemed, error } = await withTimeout(
+        supabase.rpc('redeem_voucher', { p_voucher_code: normalizedCode }),
+        3000
+      );
 
-    if (lookupError) {
-      setRedemptionError(`Unable to verify voucher: ${lookupError.message}`);
-      return;
-    }
-    if (existing) {
-      setRedemptionError('This voucher has already been redeemed.');
-      return;
-    }
+      if (error) throw error;
+      if (redeemed !== true) {
+        setRedemptionError('This voucher has already been redeemed.');
+        return;
+      }
 
-    const { error } = await withTimeout(
-      supabase.from('redemptions').insert([{
-        voucher_code: normalizedCode,
-        merchant_id: user.id,
-      }]),
-      3000
-    );
-    if (error) {
-      setRedemptionError(`Unable to redeem voucher: ${error.message}`);
-      return;
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+      if (scanner) {
+        try {
+          await scanner.clear();
+        } catch (clearError) {
+          console.error('Unable to stop the voucher scanner after redemption:', getErrorMessage(clearError));
+        }
+      }
+      setVoucherCode('');
+      setRedeemSuccess(true);
+      setRedemptionCount((count) => count + 1);
+    } catch (error: unknown) {
+      setRedemptionError(`Unable to redeem voucher: ${getErrorMessage(error)}`);
     }
-    setVoucherCode('');
-    setRedeemSuccess(true);
-    setRedemptionCount((count) => count + 1);
   }, [user]);
 
   // Camera QR Scanner Lifecycle
@@ -240,19 +236,25 @@ export default function MerchantPortal() {
       scannerRef.current = scanner;
       scanner.render(
         (decodedText) => {
-          handleVoucherCodeRedeem(decodedText);
-          scanner.clear();
+          if (scanInProgressRef.current) return;
+          scanInProgressRef.current = true;
+          void handleVoucherCodeRedeem(decodedText).finally(() => {
+            scanInProgressRef.current = false;
+          });
         },
         () => {}
       );
 
       return () => {
-        if (scannerRef.current) {
-          scannerRef.current.clear().catch(() => {});
+        if (scannerRef.current === scanner) {
+          scannerRef.current = null;
+          void scanner.clear().catch((error: unknown) => {
+            console.error('Unable to clear the voucher scanner:', getErrorMessage(error));
+          });
         }
       };
     }
-  }, [isScannerOpen, handleVoucherCodeRedeem]);
+  }, [isScannerOpen, scannerSession, handleVoucherCodeRedeem]);
 
   async function fetchMyDeals(userId: string) {
     const localDeals = readStoredCustomDeals().filter(
@@ -272,7 +274,8 @@ export default function MerchantPortal() {
           supabase
             .from('redemptions')
             .select('id', { count: 'exact', head: true })
-            .eq('merchant_id', userId),
+            .eq('merchant_id', userId)
+            .eq('redeemed', true),
         ]),
         3000
       );
@@ -606,6 +609,7 @@ export default function MerchantPortal() {
   };
 
   const totalInquiries = myDeals.reduce((sum, d) => sum + (d.inquiries_count || 0), 0);
+  const totalDirectionRequests = myDeals.reduce((sum, deal) => sum + (deal.views_count || 0), 0);
   const printStore = myDeals[0]?.business || '';
   const printStoreUrl = typeof window === 'undefined'
     ? '/'
@@ -777,12 +781,14 @@ export default function MerchantPortal() {
               onClick={() => {
                 setScannedResult(null);
                 setRedeemSuccess(false);
+                setRedemptionError('');
+                setScannerSession((session) => session + 1);
                 setIsScannerOpen(true);
               }}
               className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs sm:text-sm px-3 sm:px-3.5 py-2 rounded-xl transition shadow-lg shadow-emerald-600/20 flex items-center gap-1.5"
             >
               <span>📷</span>
-              <span>Scan Voucher</span>
+              <span>Open In-Store Voucher Scanner</span>
             </button>
 
             <button
@@ -858,9 +864,9 @@ export default function MerchantPortal() {
             <input
               value={voucherCode}
               onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
-              placeholder="LDH-1234"
-              pattern="LDH-[0-9]{4}"
-              maxLength={8}
+              placeholder="LDH-1234 or LDH-VRC-1234"
+              pattern="LDH-(?:[A-Za-z0-9]+-)?[A-Za-z0-9]{4}"
+              maxLength={20}
               aria-label="Voucher code"
               className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-zinc-100 font-mono focus:outline-none focus:border-emerald-500"
             />
@@ -888,9 +894,19 @@ export default function MerchantPortal() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-[#0e1626] px-5 py-4">
-          <span className="text-xs text-slate-400">Redeemed at Counter</span>
-          <span className="text-2xl font-black text-emerald-400">{redemptionCount}</span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="flex flex-col gap-1 rounded-2xl border border-slate-800 bg-[#0e1628] p-4">
+            <span className="text-xs font-medium text-slate-400">🧭 Total Direction Requests</span>
+            <span className="text-2xl font-black text-blue-300">{totalDirectionRequests}</span>
+          </div>
+          <div className="flex flex-col gap-1 rounded-2xl border border-slate-800 bg-[#0e1628] p-4">
+            <span className="text-xs font-medium text-slate-400">💬 WhatsApp Leads Generated</span>
+            <span className="text-2xl font-black text-emerald-400">{totalInquiries}</span>
+          </div>
+          <div className="flex flex-col gap-1 rounded-2xl border border-slate-800 bg-[#0e1628] p-4">
+            <span className="text-xs font-medium text-slate-400">✓ Vouchers Redeemed</span>
+            <span className="text-2xl font-black text-indigo-300">{redemptionCount}</span>
+          </div>
         </div>
 
         {/* Live Deals Section */}
@@ -1064,8 +1080,15 @@ export default function MerchantPortal() {
                 📷 Scan Customer Voucher
               </span>
               <button
+                type="button"
                 onClick={() => {
-                  if (scannerRef.current) scannerRef.current.clear().catch(() => {});
+                  const scanner = scannerRef.current;
+                  scannerRef.current = null;
+                  if (scanner) {
+                    void scanner.clear().catch((error: unknown) => {
+                      console.error('Unable to close the voucher scanner:', getErrorMessage(error));
+                    });
+                  }
                   setIsScannerOpen(false);
                 }}
                 className="text-slate-400 hover:text-white"
@@ -1076,16 +1099,45 @@ export default function MerchantPortal() {
 
             <div id="reader" className="w-full rounded-2xl overflow-hidden bg-black" />
 
+            {redemptionError && (
+              <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-left text-xs text-rose-300">
+                {redemptionError}
+              </p>
+            )}
+
             {redeemSuccess && (
               <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl space-y-1">
-                <span className="text-xs font-bold text-emerald-400">✓ Voucher Verified & Redeemed!</span>
+                <span className="text-xs font-bold uppercase text-emerald-400">✓ VOUCHER VERIFIED &amp; REDEEMED</span>
                 <p className="text-[11px] text-slate-300 font-mono">Code: {scannedResult}</p>
               </div>
             )}
 
+            {redeemSuccess && (
+              <button
+                type="button"
+                onClick={() => {
+                  scanInProgressRef.current = false;
+                  setScannedResult(null);
+                  setRedeemSuccess(false);
+                  setRedemptionError('');
+                  setScannerSession((session) => session + 1);
+                }}
+                className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-500"
+              >
+                Scan Next Voucher
+              </button>
+            )}
+
             <button
+              type="button"
               onClick={() => {
-                if (scannerRef.current) scannerRef.current.clear().catch(() => {});
+                const scanner = scannerRef.current;
+                scannerRef.current = null;
+                if (scanner) {
+                  void scanner.clear().catch((error: unknown) => {
+                    console.error('Unable to close the voucher scanner:', getErrorMessage(error));
+                  });
+                }
                 setIsScannerOpen(false);
               }}
               className="w-full py-2.5 bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-medium"

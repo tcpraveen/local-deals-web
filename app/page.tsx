@@ -8,6 +8,7 @@ import {
   isVerifiedActiveDeal,
   LOCATIONS,
   normalizeDeal,
+  slugifyStoreName,
   VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
 import { calculateDistance, getUserLocation } from "@/lib/geo";
@@ -95,6 +96,9 @@ export default function StorefrontPage() {
   const locationStatusRef = useRef(locationStatus);
   const [selectedArea, setSelectedArea] = useState<string>("All");
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const shareToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const engagementCounts = useRef<Record<string, number>>({});
   const finishSplash = useCallback(() => setShowSplash(false), []);
 
   useEffect(() => {
@@ -214,6 +218,69 @@ export default function StorefrontPage() {
     if (claimedDeals[deal.id]) return;
     const uniqueCode = createVoucherCode();
     setClaimedDeals((prev) => ({ ...prev, [deal.id]: uniqueCode }));
+  };
+
+  const handleShareDeal = async (deal: Deal) => {
+    const url = `${window.location.origin}/store/${slugifyStoreName(deal.business)}`;
+    const shareData = {
+      title: deal.title,
+      text: `Check out ${deal.discount} at ${deal.business} (${deal.location || 'nearby'}) on Local Deals Hub!`,
+      url,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setShareToast('Deal link copied to clipboard!');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      console.error('Unable to share or copy the deal link:', error);
+      setShareToast('Unable to share the deal link. Please try again.');
+    }
+
+    if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
+    shareToastTimer.current = setTimeout(() => setShareToast(null), 2500);
+  };
+
+  const recordDealMetric = async (
+    deal: Deal,
+    metric: 'views_count' | 'inquiries_count'
+  ) => {
+    const counterKey = `${deal.id}:${metric}`;
+    const previousValue = engagementCounts.current[counterKey] ?? deal[metric] ?? 0;
+    const nextValue = previousValue + 1;
+    engagementCounts.current[counterKey] = nextValue;
+    setDeals((currentDeals) =>
+      currentDeals.map((item) =>
+        item.id === deal.id ? { ...item, [metric]: nextValue } : item
+      )
+    );
+    if (typeof deal.id !== 'number') return;
+
+    void withTimeout(
+      supabase.rpc('increment_deal_metric', {
+        p_deal_id: deal.id,
+        p_metric: metric,
+      }),
+      3000
+    )
+      .then(({ error }) => {
+        if (error) throw error;
+      })
+      .catch((error: unknown) => {
+        console.error(`Unable to record ${metric} for deal ${deal.id}:`, error);
+        const currentValue = engagementCounts.current[counterKey] ?? nextValue;
+        engagementCounts.current[counterKey] = Math.max(0, currentValue - 1);
+        setDeals((currentDeals) =>
+          currentDeals.map((item) =>
+            item.id === deal.id
+              ? { ...item, [metric]: Math.max(0, (item[metric] || 0) - 1) }
+              : item
+          )
+        );
+      });
   };
 
   const filteredDeals = deals.filter(
@@ -417,7 +484,7 @@ export default function StorefrontPage() {
                       Call Shop
                     </a>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     {whatsappNumber && (
                     <a
                       href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
@@ -425,11 +492,20 @@ export default function StorefrontPage() {
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => void recordDealMetric(deal, 'inquiries_count')}
                       className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-3 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
                     >
                       <span aria-hidden="true">💬</span> WhatsApp
                     </a>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => void handleShareDeal(deal)}
+                      aria-label={`Share ${deal.business} deal`}
+                      className="p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center"
+                    >
+                      📤
+                    </button>
                     <button
                       onClick={() => handleClaim(deal)}
                       disabled={!!voucherCode}
@@ -448,6 +524,7 @@ export default function StorefrontPage() {
                     href={getDirectionsUrl(deal)}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => void recordDealMetric(deal, 'views_count')}
                     className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
                   >
                     <span>Open Exact Turn-by-Turn Navigation</span>
@@ -459,6 +536,14 @@ export default function StorefrontPage() {
           })}
         </section>
       </div>
+      {shareToast && (
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-slate-700 bg-[#0e1628] px-4 py-3 text-sm font-medium text-white shadow-2xl"
+        >
+          {shareToast}
+        </div>
+      )}
       <AIAssistant coords={coords} deals={deals} />
     </main>
   );
