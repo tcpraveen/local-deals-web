@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import QRCode from "react-qr-code";
 
 interface Deal {
   id: string;
@@ -20,7 +20,6 @@ interface Deal {
   phone: string;
   rating: number;
   reviewsCount: number;
-  imageUrl: string;
   openTime: string; // "09:00"
   closeTime: string; // "21:30"
 }
@@ -42,7 +41,6 @@ const DEALS: Deal[] = [
     phone: "919443123456",
     rating: 4.9,
     reviewsCount: 38,
-    imageUrl: "https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80",
     openTime: "09:00",
     closeTime: "21:30",
   },
@@ -62,13 +60,46 @@ const DEALS: Deal[] = [
     phone: "919842123456",
     rating: 4.8,
     reviewsCount: 54,
-    imageUrl: "https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?auto=format&fit=crop&w=800&q=80",
     openTime: "08:30",
     closeTime: "22:00",
   },
 ];
 
 const LOCATIONS = ["All Outlets", "Authoor", "Old Market", "Main Bazaar", "Anna Nagar", "Beach Road", "Millerpuram"];
+
+const UI_TRANSLATIONS: Record<string, string> = {
+  "Claim Voucher": "வவுச்சரைப் பெறுங்கள்",
+  "Open Exact Turn-by-Turn Navigation": "நேரடி வழித்தடம் (GPS)",
+  "Calculated Distance": "தொலைவு",
+  "Estimated Transit": "பயண நேரம்",
+  "Call Shop": "அழைக்கவும்",
+  "Merchant Portal": "வியாபாரி பக்கம்",
+  "Verified local retail discovery": "சரிபார்க்கப்பட்ட உள்ளூர் சலுகைகள்",
+};
+
+interface ClaimedVoucher {
+  dealId: string;
+  code: string;
+  dealTitle: string;
+  shopName: string;
+  discount: string;
+}
+
+function isClaimedVoucher(value: unknown): value is ClaimedVoucher {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    "dealId" in value &&
+    typeof value.dealId === "string" &&
+    "code" in value &&
+    typeof value.code === "string" &&
+    "dealTitle" in value &&
+    typeof value.dealTitle === "string" &&
+    "shopName" in value &&
+    typeof value.shopName === "string" &&
+    "discount" in value &&
+    typeof value.discount === "string"
+  );
+}
 
 function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -118,7 +149,13 @@ interface Message {
   text: string;
 }
 
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 export default function LocalDealsApp() {
+  const [language, setLanguage] = useState<"en" | "ta">("en");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
   const [selectedLocation, setSelectedLocation] = useState<string>("All Outlets");
@@ -126,10 +163,14 @@ export default function LocalDealsApp() {
   const [maxRadius, setMaxRadius] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState<boolean>(false);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
 
   // Voucher modal state
   const [activeVoucher, setActiveVoucher] = useState<{ deal: Deal; code: string } | null>(null);
   const [claimedCodes, setClaimedCodes] = useState<Record<string, string>>({});
+  const [claimedVouchers, setClaimedVouchers] = useState<ClaimedVoucher[]>([]);
+  const [showClaimedVouchers, setShowClaimedVouchers] = useState<boolean>(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   // AI Assistant states
   const [isAiOpen, setIsAiOpen] = useState<boolean>(false);
@@ -148,15 +189,52 @@ export default function LocalDealsApp() {
     try {
       const saved = localStorage.getItem("ldh_favs");
       if (saved) setFavorites(JSON.parse(saved));
-    } catch {}
+    } catch (error) {
+      console.error("Unable to load saved favorites.", error);
+    }
   }, []);
+
+  useEffect(() => {
+    try {
+      const savedLanguage = localStorage.getItem("ldh_lang");
+      if (savedLanguage === "en" || savedLanguage === "ta") setLanguage(savedLanguage);
+
+      const savedVouchers = localStorage.getItem("ldh_claimed_vouchers");
+      if (savedVouchers) {
+        const parsed: unknown = JSON.parse(savedVouchers);
+        if (!Array.isArray(parsed)) throw new Error("Saved vouchers must be an array.");
+        const vouchers = parsed.filter(isClaimedVoucher);
+        setClaimedVouchers(vouchers);
+        setClaimedCodes(Object.fromEntries(vouchers.map((voucher) => [voucher.dealId, voucher.code])));
+      }
+    } catch (error) {
+      console.error("Unable to load saved language or vouchers.", error);
+      setStorageError("Saved language or vouchers could not be loaded from this device.");
+    }
+  }, []);
+
+  const translate = (text: string) => (language === "ta" ? UI_TRANSLATIONS[text] ?? text : text);
+
+  const toggleLanguage = () => {
+    const nextLanguage = language === "en" ? "ta" : "en";
+    setLanguage(nextLanguage);
+    try {
+      localStorage.setItem("ldh_lang", nextLanguage);
+    } catch (error) {
+      console.error("Unable to save language preference.", error);
+      setStorageError("Your language preference could not be saved on this device.");
+    }
+  };
 
   const toggleFavorite = (id: string) => {
     setFavorites((prev) => {
       const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
       try {
         localStorage.setItem("ldh_favs", JSON.stringify(next));
-      } catch {}
+      } catch (error) {
+        console.error("Unable to save favorite.", error);
+        setStorageError("Your saved favorites could not be updated on this device.");
+      }
       return next;
     });
   };
@@ -177,11 +255,58 @@ export default function LocalDealsApp() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const handleAppInstalled = () => setInstallPrompt(null);
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!installPrompt) {
+      window.alert("To install this app, open your browser menu and choose “Install app” or “Add to Home Screen”.");
+      return;
+    }
+
+    try {
+      await installPrompt.prompt();
+      await installPrompt.userChoice;
+      setInstallPrompt(null);
+    } catch (error) {
+      console.error("Unable to open the app installation prompt.", error);
+      window.alert("The app installation prompt could not be opened. Try installing it from your browser menu.");
+    }
+  };
+
   const handleClaim = (deal: Deal) => {
-    let code = claimedCodes[deal.id];
-    if (!code) {
-      code = `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
-      setClaimedCodes((prev) => ({ ...prev, [deal.id]: code }));
+    const existingVoucher = claimedVouchers.find((voucher) => voucher.dealId === deal.id);
+    const code = existingVoucher?.code ?? claimedCodes[deal.id] ?? `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
+    const voucher: ClaimedVoucher = {
+      dealId: deal.id,
+      code,
+      dealTitle: deal.title,
+      shopName: deal.business,
+      discount: deal.discount,
+    };
+    const nextVouchers = existingVoucher
+      ? claimedVouchers.map((item) => (item.dealId === deal.id ? voucher : item))
+      : [...claimedVouchers, voucher];
+
+    setClaimedCodes((prev) => ({ ...prev, [deal.id]: code }));
+    setClaimedVouchers(nextVouchers);
+    try {
+      localStorage.setItem("ldh_claimed_vouchers", JSON.stringify(nextVouchers));
+    } catch (error) {
+      console.error("Unable to save claimed voucher.", error);
+      setStorageError("Your voucher could not be saved on this device.");
     }
     setActiveVoucher({ deal, code });
   };
@@ -229,11 +354,10 @@ export default function LocalDealsApp() {
   const filteredDeals = useMemo(() => {
     return DEALS.filter((d) => {
       const matchLoc = selectedLocation === "All Outlets" || d.location === selectedLocation;
+      const normalizedSearch = searchQuery.trim().toLowerCase();
       const matchSearch =
-        searchQuery === "" ||
-        d.business.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.address.toLowerCase().includes(searchQuery.toLowerCase());
+        normalizedSearch === "" ||
+        [d.title, d.business, d.category, d.location].some((value) => value.toLowerCase().includes(normalizedSearch));
 
       const dist = coords ? calculateHaversineDistanceKm(coords.lat, coords.lng, d.lat, d.lng) : null;
       const matchRadius = maxRadius === null || (dist !== null && dist <= maxRadius);
@@ -247,7 +371,7 @@ export default function LocalDealsApp() {
     <div className="min-h-screen bg-[#070b14] text-slate-100 font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Navbar */}
       <header className="border-b border-slate-800/80 bg-[#090e1c]/80 backdrop-blur-md sticky top-0 z-30 px-4 sm:px-8 py-3.5 transition">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-black text-white shadow-md shadow-blue-500/20">
               L
@@ -258,12 +382,38 @@ export default function LocalDealsApp() {
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
                   Live GPS
                 </span>
+                <button
+                  type="button"
+                  onClick={toggleLanguage}
+                  aria-label={`Switch language to ${language === "en" ? "Tamil" : "English"}`}
+                  className="whitespace-nowrap text-[10px] font-bold bg-slate-900 border border-slate-700/80 text-slate-300 hover:text-white px-2 py-1 rounded-full transition"
+                >
+                  EN | தமிழ்
+                </button>
               </div>
-              <p className="text-[11px] text-slate-400 -mt-0.5">Verified local retail discovery • Thoothukudi & Authoor</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {translate("Verified local retail discovery")} • Thoothukudi & Authoor
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+            <button
+              type="button"
+              onClick={handleInstallApp}
+              className="whitespace-nowrap text-[10px] sm:text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition"
+            >
+              📲 Install App
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowClaimedVouchers(true)}
+              aria-label={`My Deals (${claimedVouchers.length})`}
+              className="text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-xl border border-slate-700/80 bg-slate-900 text-slate-300 hover:bg-slate-800 transition whitespace-nowrap"
+            >
+              <span className="sm:hidden">🎟️</span>
+              <span className="hidden sm:inline">🎟️ My Deals</span>
+            </button>
             <button
               onClick={() => setShowSavedOnly(!showSavedOnly)}
               className={`text-xs font-semibold px-3 py-2 rounded-xl border transition flex items-center gap-1.5 ${
@@ -279,7 +429,7 @@ export default function LocalDealsApp() {
               href="/merchant"
               className="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition shadow-sm"
             >
-              Merchant Portal
+              {translate("Merchant Portal")}
             </Link>
           </div>
         </div>
@@ -287,6 +437,12 @@ export default function LocalDealsApp() {
 
       {/* Main Body */}
       <main className="max-w-6xl mx-auto px-4 sm:px-8 py-6 space-y-6">
+        {storageError && (
+          <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+            {storageError}
+          </p>
+        )}
+
         {/* GPS Live Telemetry Pill */}
         <div className="bg-[#0b1224] border border-blue-900/30 rounded-2xl p-3.5 sm:px-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-inner">
           <div className="flex items-center gap-2.5">
@@ -310,19 +466,19 @@ export default function LocalDealsApp() {
         </div>
 
         {/* Search & Radius Filter */}
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between mb-6">
+          <div className="flex-1 relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">🔍</span>
             <input
               type="text"
-              placeholder="Search stores, kitchenware, inverters, or streets..."
+              placeholder="Search deals, products, or stores..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-11 pr-4 py-3 bg-[#0d162a] border border-slate-800 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition shadow-sm"
             />
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto bg-[#0d162a] border border-slate-800 p-1.5 rounded-2xl">
+          <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto bg-[#0d162a] border border-slate-800 p-1.5 rounded-2xl">
             <span className="text-[11px] text-slate-400 font-bold px-2.5">Radius:</span>
             {[
               { label: "All", val: null },
@@ -374,89 +530,84 @@ export default function LocalDealsApp() {
                 key={deal.id}
                 className="bg-[#0b1224] border border-slate-800/80 hover:border-slate-700 rounded-3xl overflow-hidden shadow-xl transition flex flex-col justify-between group"
               >
-                {/* Store Cover Image */}
-                <div className="relative h-48 w-full overflow-hidden bg-slate-900">
-                  <Image
-                    src={deal.imageUrl}
-                    alt={deal.business}
-                    fill
-                    sizes="(max-width: 768px) 100vw, 50vw"
-                    className="object-cover group-hover:scale-105 transition duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0b1224] via-transparent to-black/30" />
-
-                  {/* Badges */}
-                  <div className="absolute top-3 left-3 flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-white border border-white/10">
-                      {deal.location}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 backdrop-blur-md border ${
-                        storeStatus.status === "open"
-                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                          : storeStatus.status === "closing_soon"
-                          ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                          : "bg-rose-500/20 text-rose-300 border-rose-500/30"
-                      }`}
-                    >
+                <div className="p-5">
+                  {/* Top Badge Row */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                        {deal.location}
+                      </span>
                       <span
-                        className={`w-1.5 h-1.5 rounded-full ${
+                        className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1 border ${
                           storeStatus.status === "open"
-                            ? "bg-emerald-400 animate-pulse"
+                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
                             : storeStatus.status === "closing_soon"
-                            ? "bg-amber-400"
-                            : "bg-rose-400"
+                            ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                            : "bg-rose-500/10 text-rose-300 border-rose-500/30"
                         }`}
-                      />
-                      {storeStatus.text}
-                    </span>
-                  </div>
-
-                  <div className="absolute top-3 right-3 flex items-center gap-2">
-                    <button
-                      onClick={() => toggleFavorite(deal.id)}
-                      className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-sm border border-white/10 hover:scale-110 transition"
-                      aria-label="Save store to favorites"
-                    >
-                      {isFav ? "❤️" : "🤍"}
-                    </button>
-                    <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-rose-600 text-white shadow-lg shadow-rose-600/30">
-                      {deal.discount}
-                    </span>
-                  </div>
-
-                  {/* Calculated Live Distance */}
-                  <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md border border-white/10 px-3 py-1 rounded-xl text-right">
-                    <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Distance</div>
-                    <div className="text-xs font-black text-white">
-                      {distance !== null ? `${distance.toFixed(2)} km away` : "Calculating..."}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            storeStatus.status === "open"
+                              ? "bg-emerald-400 animate-pulse"
+                              : storeStatus.status === "closing_soon"
+                              ? "bg-amber-400"
+                              : "bg-rose-400"
+                          }`}
+                        />
+                        {storeStatus.text}
+                      </span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleFavorite(deal.id)}
+                        className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-sm border border-slate-700 hover:scale-110 transition"
+                        aria-label="Save store to favorites"
+                      >
+                        {isFav ? "❤️" : "🤍"}
+                      </button>
+                      <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-rose-600 text-white shadow-lg shadow-rose-600/30">
+                        {deal.discount}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Store Title & Ratings */}
+                  <div className="flex items-start justify-between gap-2 pt-3">
+                    <div className="min-w-0 flex items-start gap-1.5">
+                      <h2 className="text-lg sm:text-xl font-black leading-tight text-white group-hover:text-blue-400 transition break-words">
+                        {deal.business}
+                      </h2>
+                      <span className="shrink-0 text-blue-400 text-xs pt-1" title="Verified Store">
+                        ✓
+                      </span>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-md text-amber-300 text-xs font-bold">
+                      <span>★</span>
+                      <span>{deal.rating}</span>
+                      <span className="text-slate-500 text-[10px]">({deal.reviewsCount})</span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs font-semibold text-blue-400 mt-1">{deal.category}</p>
+                  <p className="text-sm font-bold text-slate-200 mt-2">{deal.title}</p>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{deal.address}</p>
+
+                  <div className="mt-2 text-[10px] font-semibold text-slate-500">
+                    {translate("Calculated Distance")}:{" "}
+                    {distance !== null ? `${distance.toFixed(2)} km away` : "Calculating..."}
                   </div>
                 </div>
 
                 {/* Content */}
-                <div className="p-5 flex-1 flex flex-col justify-between">
+                <div className="px-5 pb-5 flex-1 flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-xl font-black text-white group-hover:text-blue-400 transition">{deal.business}</h2>
-                        <span className="text-blue-400 text-xs" title="Verified Store">✓</span>
-                      </div>
-                      <div className="flex items-center gap-1 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-md text-amber-300 text-xs font-bold">
-                        <span>★</span>
-                        <span>{deal.rating}</span>
-                        <span className="text-slate-500 text-[10px]">({deal.reviewsCount})</span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs font-semibold text-blue-400 mt-0.5">{deal.category}</p>
-                    <p className="text-sm font-bold text-slate-200 mt-2">{deal.title}</p>
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-1 leading-relaxed">{deal.address}</p>
-
                     {/* Drive & Walk Time Pill */}
-                    <div className="mt-4 p-3 bg-[#080d1a] border border-slate-800 rounded-2xl flex items-center justify-between text-xs">
+                    <div className="p-3 bg-[#080d1a] border border-slate-800 rounded-2xl flex items-center justify-between text-xs">
                       <div>
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">Transit ETA</span>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">
+                          {translate("Estimated Transit")}
+                        </span>
                         <span className="font-bold text-blue-400">{transit?.drive || "Acquiring GPS..."}</span>
                       </div>
                       <div className="text-right">
@@ -494,7 +645,7 @@ export default function LocalDealsApp() {
                             : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25"
                         }`}
                       >
-                        {isClaimed ? "✓ Code Ready" : "Claim Voucher"}
+                        {isClaimed ? "✓ Code Ready" : translate("Claim Voucher")}
                       </button>
                     </div>
 
@@ -504,7 +655,7 @@ export default function LocalDealsApp() {
                       rel="noopener noreferrer"
                       className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
                     >
-                      <span>Open Exact Turn-by-Turn Navigation</span>
+                      <span>{translate("Open Exact Turn-by-Turn Navigation")}</span>
                       <span>→</span>
                     </a>
                   </div>
@@ -513,6 +664,11 @@ export default function LocalDealsApp() {
             );
           })}
         </div>
+        {filteredDeals.length === 0 && (
+          <div className="rounded-2xl border border-slate-800 bg-[#0b1224] px-4 py-8 text-center text-sm font-semibold text-slate-400">
+            No matching deals found in this area
+          </div>
+        )}
       </main>
 
       {/* Interactive Voucher Pop-up Modal */}
@@ -546,6 +702,10 @@ export default function LocalDealsApp() {
               Present this code at {activeVoucher.deal.business} ({activeVoucher.deal.location}) during checkout to redeem your discount.
             </p>
 
+            <div className="flex items-center justify-center rounded-2xl bg-white p-3">
+              <QRCode value={activeVoucher.code} size={144} />
+            </div>
+
             <div className="flex gap-2">
               <a
                 href={`https://wa.me/${activeVoucher.deal.phone}?text=${encodeURIComponent(
@@ -557,6 +717,12 @@ export default function LocalDealsApp() {
               >
                 Send to WhatsApp
               </a>
+              <a
+                href={`tel:${activeVoucher.deal.phone}`}
+                className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition"
+              >
+                {translate("Call Shop")}
+              </a>
               <button
                 onClick={() => setActiveVoucher(null)}
                 className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
@@ -564,6 +730,56 @@ export default function LocalDealsApp() {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showClaimedVouchers && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="claimed-vouchers-title"
+            className="bg-[#0e1628] border border-blue-500/30 rounded-3xl p-5 sm:p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto shadow-2xl relative"
+          >
+            <button
+              type="button"
+              onClick={() => setShowClaimedVouchers(false)}
+              aria-label="Close my deals"
+              className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold"
+            >
+              ✕
+            </button>
+            <h3 id="claimed-vouchers-title" className="text-lg font-black text-white pr-8">
+              🎟️ My Deals
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 mb-4">Your claimed vouchers are saved on this device.</p>
+            {claimedVouchers.length === 0 ? (
+              <div className="rounded-2xl border border-slate-800 bg-[#070b14] p-5 text-center text-sm text-slate-400">
+                You have no claimed vouchers yet. Claim a deal to save it here.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {claimedVouchers.map((voucher) => (
+                  <div
+                    key={voucher.dealId}
+                    className="rounded-2xl border border-slate-800 bg-[#090e1c] p-4 flex flex-col sm:flex-row items-center gap-4"
+                  >
+                    <div className="shrink-0 rounded-xl bg-white p-2">
+                      <QRCode value={voucher.code} size={104} />
+                    </div>
+                    <div className="min-w-0 flex-1 text-center sm:text-left">
+                      <p className="text-sm font-bold text-white">{voucher.shopName}</p>
+                      <p className="text-xs text-slate-400 mt-1">{voucher.dealTitle}</p>
+                      <p className="text-xs font-bold text-amber-400 mt-2">{voucher.discount}</p>
+                      <p className="text-sm font-mono font-black tracking-widest text-emerald-400 mt-1">
+                        {voucher.code}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
