@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import ServiceWorkerRegistration from './ServiceWorkerRegistration';
 import './globals.css';
@@ -6,12 +6,13 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Local Deals Hub — Best Neighborhood Discounts & Offers',
-  description: 'Discover verified local deals, exclusive discounts, and connect directly on WhatsApp & phone.',
+  title: 'Local Deals Hub — Best Neighborhood Discounts',
+  description: 'Verified local retail discovery in Thoothukudi & Authoor',
   manifest: '/manifest.json',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/icon-192.png',
+    icon: '/icon-192.svg',
+    shortcut: '/icon-192.svg',
+    apple: '/icon-192.svg',
   },
   appleWebApp: {
     capable: true,
@@ -41,6 +42,13 @@ export const metadata: Metadata = {
     description: 'Find genuine verified local offers and claim via WhatsApp.',
     images: ['https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=1200&h=630&q=80'],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#070b14',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
