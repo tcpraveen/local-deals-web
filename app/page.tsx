@@ -122,6 +122,19 @@ function mergeDeals(primary: Deal[], customDeals: Deal[]): Deal[] {
   return [...merged.values()];
 }
 
+function mapSupabaseDeal(record: Record<string, unknown>): Deal {
+  return normalizeDeal({
+    ...record,
+    storeName: record.store_name,
+    discountBadge: record.discount_badge,
+    discountPrice: record.discount_price,
+    originalPrice: record.original_price,
+    vouchersLeft: record.vouchers_left,
+    whatsappNumber: record.whatsapp_number,
+    isOpen: record.is_open,
+  });
+}
+
 export default function StorefrontPage() {
   const [language, setLanguage] = useState<'en' | 'ta'>('en');
   const [showSplash, setShowSplash] = useState(true);
@@ -196,7 +209,7 @@ export default function StorefrontPage() {
         );
         if (error) throw error;
         const activeDeals = (data || [])
-          .map((record: Record<string, unknown>) => normalizeDeal(record))
+          .map((record: Record<string, unknown>) => mapSupabaseDeal(record))
           .filter((deal: Deal) => deal.id !== '' && isVerifiedActiveDeal(deal));
         setDeals(mergeDeals(activeDeals, customDeals));
       } catch (error) {
@@ -597,14 +610,19 @@ export default function StorefrontPage() {
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
             const voucherCode = claimedDeals[String(deal.id)];
-            const dealPrice = deal.deal_price ?? deal.price ?? deal.discount;
+            const businessName = deal.storeName || deal.business;
+            const discountText = deal.discountBadge || deal.discount;
+            const dealPrice = deal.discountPrice ?? deal.deal_price ?? deal.price ?? discountText;
+            const vouchersLeft = deal.vouchersLeft ?? deal.vouchers_left;
             const isFavorite = favorites.includes(String(deal.id));
             const storeOpen =
-              typeof deal.opening_time === 'string' &&
-              typeof deal.closing_time === 'string'
-                ? isStoreOpen(deal.opening_time, deal.closing_time)
-                : null;
-            const phoneDigits = (deal.phone || '').replace(/\D/g, '');
+              typeof deal.isOpen === 'boolean'
+                ? deal.isOpen
+                : typeof deal.opening_time === 'string' &&
+                    typeof deal.closing_time === 'string'
+                  ? isStoreOpen(deal.opening_time, deal.closing_time)
+                  : null;
+            const phoneDigits = (deal.whatsappNumber || deal.phone || '').replace(/\D/g, '');
             const whatsappNumber =
               phoneDigits.length === 10
                 ? `91${phoneDigits}`
@@ -632,12 +650,12 @@ export default function StorefrontPage() {
                         </span>
                       )}
                       <span className="text-xs font-black px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">
-                        {deal.discount}
+                        {discountText}
                       </span>
                       <button
                         type="button"
                         onClick={() => toggleFavorite(deal.id)}
-                        aria-label={`${isFavorite ? 'Remove' : 'Save'} ${deal.business} ${isFavorite ? 'from' : 'to'} saved deals`}
+                        aria-label={`${isFavorite ? 'Remove' : 'Save'} ${businessName} ${isFavorite ? 'from' : 'to'} saved deals`}
                         aria-pressed={isFavorite}
                         className={`rounded-lg border px-2 py-1 text-sm transition ${
                           isFavorite
@@ -651,7 +669,7 @@ export default function StorefrontPage() {
                   </div>
 
                   {/* Title & Shop Details */}
-                  <h2 className="text-xl font-black mt-3 text-white">{deal.business}</h2>
+                  <h2 className="text-xl font-black mt-3 text-white">{businessName}</h2>
                   <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
                   <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
 
@@ -680,16 +698,16 @@ export default function StorefrontPage() {
                     <span className="text-2xl font-black text-white">
                       {deal.deal_price !== undefined || deal.price !== undefined
                         ? `₹${dealPrice}`
-                        : deal.discount}
+                        : discountText}
                     </span>
-                    {(deal.original_price ?? deal.originalPrice) !== undefined && (
+                    {deal.originalPrice !== undefined && (
                       <span className="text-xs text-slate-500 line-through">
-                        ₹{deal.original_price ?? deal.originalPrice}
+                        ₹{deal.originalPrice}
                       </span>
                     )}
-                    {typeof deal.vouchers_left === 'number' && (
+                    {typeof vouchersLeft === 'number' && (
                       <span className="ml-auto text-[11px] font-bold text-amber-400">
-                        {deal.vouchers_left} vouchers left
+                        {vouchersLeft} vouchers left
                       </span>
                     )}
                   </div>
@@ -710,7 +728,7 @@ export default function StorefrontPage() {
                 <div className="mt-6 pt-4 border-t border-slate-800/70 flex flex-col gap-2">
                   <div className="mb-2 flex items-center justify-between">
                     <a
-                      href={deal.phone ? `tel:${deal.phone}` : undefined}
+                      href={phoneDigits ? `tel:${phoneDigits}` : undefined}
                       className="text-xs font-semibold text-slate-400 transition hover:text-white"
                     >
                       {translate('Call Shop')}
@@ -720,7 +738,7 @@ export default function StorefrontPage() {
                     {whatsappNumber && (
                     <a
                       href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-                        `Vanakkam! I want to claim the ${deal.discount || 'special offer'} for ${deal.title} seen on Local Deals Hub.`
+                        `Vanakkam! I want to claim the ${discountText || 'special offer'} for ${deal.title} seen on Local Deals Hub.`
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -733,7 +751,7 @@ export default function StorefrontPage() {
                     <button
                       type="button"
                       onClick={() => void handleShareDeal(deal)}
-                      aria-label={`Share ${deal.business} deal`}
+                      aria-label={`Share ${businessName} deal`}
                       className="p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center"
                     >
                       📤

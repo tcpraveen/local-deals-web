@@ -3,6 +3,7 @@ export interface Deal {
   user_id?: string;
   title: string;
   business: string;
+  storeName?: string;
   is_active?: boolean;
   price?: number | string;
   originalPrice?: number | string;
@@ -10,6 +11,11 @@ export interface Deal {
   address?: string;
   logo_url?: string;
   discount: string;
+  discountBadge?: string;
+  discountPrice?: number | string;
+  vouchersLeft?: number;
+  whatsappNumber?: string;
+  isOpen?: boolean;
   original_price?: number | string;
   deal_price?: number | string;
   category: string;
@@ -111,22 +117,36 @@ export function getDirectionsUrl(lat: number, lng: number): string {
 }
 
 export function normalizeDeal(record: Record<string, unknown>): Deal {
-  const businessValue = record.business ?? record.shop_name;
-  const discountValue = record.discount ?? record.discount_badge;
+  const businessValue = record.business ?? record.storeName ?? record.store_name ?? record.shop_name;
+  const discountValue = record.discount ?? record.discountBadge ?? record.discount_badge;
   const locationValue = record.location ?? record.area;
   const openingTime = record.opening_time ?? record.open_time;
   const closingTime = record.closing_time ?? record.close_time;
+  const priceValue = record.deal_price ?? record.discountPrice ?? record.discount_price;
+  const originalPriceValue = record.originalPrice ?? record.original_price;
+  const vouchersLeftValue = record.vouchersLeft ?? record.vouchers_left;
+  const whatsappNumberValue = record.whatsappNumber ?? record.whatsapp_number ?? record.phone;
   return {
     id: typeof record.id === 'number' || typeof record.id === 'string' ? record.id : '',
     title: typeof record.title === 'string' ? record.title : '',
     business: typeof businessValue === 'string' ? businessValue : '',
+    storeName: typeof businessValue === 'string' ? businessValue : undefined,
     discount: typeof discountValue === 'string' ? discountValue : '',
-    deal_price: (record.deal_price ?? record.discount_price) as Deal['deal_price'],
-    original_price: record.original_price as Deal['original_price'],
+    discountBadge: typeof discountValue === 'string' ? discountValue : undefined,
+    discountPrice: priceValue as Deal['discountPrice'],
+    vouchersLeft: typeof vouchersLeftValue === 'number' ? vouchersLeftValue : undefined,
+    whatsappNumber: typeof whatsappNumberValue === 'string' ? whatsappNumberValue : undefined,
+    isOpen: typeof record.isOpen === 'boolean'
+      ? record.isOpen
+      : typeof record.is_open === 'boolean'
+        ? record.is_open
+        : undefined,
+    deal_price: priceValue as Deal['deal_price'],
+    original_price: originalPriceValue as Deal['original_price'],
     category: typeof record.category === 'string' ? record.category : '',
     location: typeof locationValue === 'string' ? locationValue : '',
     area: typeof record.area === 'string' ? record.area : undefined,
-    phone: typeof record.phone === 'string' ? record.phone : undefined,
+    phone: typeof whatsappNumberValue === 'string' ? whatsappNumberValue : undefined,
     expires_at: typeof record.expires_at === 'string' ? record.expires_at : undefined,
     opening_time: typeof openingTime === 'string' ? openingTime : undefined,
     closing_time: typeof closingTime === 'string' ? closingTime : undefined,
@@ -141,7 +161,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     user_id: typeof record.user_id === 'string' ? record.user_id : undefined,
     is_active: typeof record.is_active === 'boolean' ? record.is_active : undefined,
     logo_url: typeof record.logo_url === 'string' ? record.logo_url : undefined,
-    originalPrice: record.originalPrice as Deal['originalPrice'],
+    originalPrice: originalPriceValue as Deal['originalPrice'],
     vouchersCount: typeof record.vouchersCount === 'number' ? record.vouchersCount : undefined,
     price: record.price as Deal['price'],
     address: typeof record.address === 'string' ? record.address : undefined,
@@ -159,7 +179,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     reviewsCount: typeof record.reviewsCount === 'number' ? record.reviewsCount : undefined,
     openTime: typeof record.openTime === 'string' ? record.openTime : undefined,
     closeTime: typeof record.closeTime === 'string' ? record.closeTime : undefined,
-    vouchers_left: typeof record.vouchers_left === 'number' ? record.vouchers_left : undefined,
+    vouchers_left: typeof vouchersLeftValue === 'number' ? vouchersLeftValue : undefined,
     voucher_limit: typeof record.voucher_limit === 'number' ? record.voucher_limit : undefined,
   };
 }
