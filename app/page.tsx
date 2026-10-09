@@ -9,7 +9,6 @@ import {
   LOCATIONS,
   normalizeDeal,
   slugifyStoreName,
-  VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
 import { calculateDistance, getUserLocation } from "@/lib/geo";
 import { isStoreOpen } from "@/lib/storeHours";
@@ -179,11 +178,11 @@ export default function StorefrontPage() {
 
   useEffect(() => {
     const loadDeals = async () => {
+      const customDeals = readCustomDeals();
+      setDeals(customDeals);
+
       try {
-        const customDeals = readCustomDeals();
-        setDeals(customDeals);
         if (!isSupabaseConfigured) {
-          setDeals(mergeDeals(VERIFIED_REAL_DEALS, customDeals));
           return;
         }
 
@@ -199,10 +198,10 @@ export default function StorefrontPage() {
         const activeDeals = (data || [])
           .map((record: Record<string, unknown>) => normalizeDeal(record))
           .filter((deal: Deal) => deal.id !== '' && isVerifiedActiveDeal(deal));
-        setDeals(mergeDeals(activeDeals.length ? activeDeals : VERIFIED_REAL_DEALS, customDeals));
+        setDeals(mergeDeals(activeDeals, customDeals));
       } catch (error) {
-        console.error('Error loading verified deals; showing verified baseline listings:', error);
-        setDeals(mergeDeals(VERIFIED_REAL_DEALS, readCustomDeals()));
+        console.error('Error loading verified deals from Supabase:', error);
+        setDeals(customDeals);
       } finally {
         setDealsLoading(false);
       }
