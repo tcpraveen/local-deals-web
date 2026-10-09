@@ -208,10 +208,10 @@ export default function StorefrontPage() {
           3000
         );
         if (error) throw error;
-        const activeDeals = (data || [])
-          .map((record: Record<string, unknown>) => mapSupabaseDeal(record))
-          .filter((deal: Deal) => deal.id !== '' && isVerifiedActiveDeal(deal));
-        setDeals(mergeDeals(activeDeals, customDeals));
+        const mappedDeals = (data || []).map((record: Record<string, unknown>) =>
+          mapSupabaseDeal(record)
+        );
+        setDeals(mergeDeals(mappedDeals, customDeals));
       } catch (error) {
         console.error('Error loading verified deals from Supabase:', error);
         setDeals(customDeals);
@@ -417,7 +417,11 @@ export default function StorefrontPage() {
   };
 
   const filteredDeals = useMemo(() => deals.filter((deal) => {
-    const matchesArea = selectedArea === 'All' || deal.location === selectedArea;
+    const normalizedArea = selectedArea.trim().toLocaleLowerCase();
+    const matchesArea =
+      normalizedArea === 'all' ||
+      normalizedArea === 'all outlets' ||
+      deal.location?.trim().toLocaleLowerCase() === normalizedArea;
     const query = searchQuery.trim().toLocaleLowerCase();
     const matchesSearch =
       query === '' ||
@@ -427,9 +431,14 @@ export default function StorefrontPage() {
     const distance = coords && typeof deal.lat === 'number' && typeof deal.lng === 'number'
       ? calculateDistance(coords.lat, coords.lng, deal.lat, deal.lng)
       : null;
-    const matchesRadius = maxRadius === null || (distance !== null && distance <= maxRadius);
+    const hasActiveLocation =
+      locationStatus !== 'location_unavailable' && coords !== null;
+    const matchesRadius =
+      maxRadius === null ||
+      !hasActiveLocation ||
+      (distance !== null && distance <= maxRadius);
     return matchesArea && matchesSearch && matchesSaved && matchesRadius;
-  }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, coords, maxRadius]);
+  }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, coords, maxRadius, locationStatus]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
