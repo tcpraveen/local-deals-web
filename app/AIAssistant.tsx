@@ -56,6 +56,10 @@ function buildReply(
       : 'No verified active offers with available store hours are open right now.';
   }
 
+  if (/review|rating|rate/.test(normalizedQuestion)) {
+    return 'Use the star rating controls below to rate your local shopping experience. Your rating is kept on this device.';
+  }
+
   const matchingDeals = deals.filter((deal) =>
     [deal.business, deal.title, deal.location, deal.category]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -113,6 +117,8 @@ export default function AIAssistant({ coords, deals }: AIAssistantProps) {
       text: 'Vanakkam! Ask me about nearby deals, store hours, or how to claim a voucher.',
     },
   ]);
+  const [rating, setRating] = useState(5);
+  const [reviewSent, setReviewSent] = useState(false);
   const nextMessageId = useRef(1);
 
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
@@ -132,6 +138,18 @@ export default function AIAssistant({ coords, deals }: AIAssistantProps) {
     };
     setMessages((previous) => [...previous, userMessage, assistantMessage]);
     setInput('');
+  };
+
+  const submitReview = () => {
+    setReviewSent(true);
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: nextMessageId.current++,
+        role: 'assistant',
+        text: `Thank you for sharing a ${rating}-star rating. This feedback is saved for this session only.`,
+      },
+    ]);
   };
 
   return (
@@ -175,6 +193,34 @@ export default function AIAssistant({ coords, deals }: AIAssistantProps) {
                 {message.text}
               </p>
             ))}
+            <div className="rounded-2xl border border-slate-700 bg-slate-900/80 p-3">
+              <p className="text-xs font-semibold text-slate-200">Rate your local shopping experience</p>
+              <div className="mt-2 flex items-center justify-center gap-2">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setRating(value);
+                      setReviewSent(false);
+                    }}
+                    aria-label={`${value} star${value === 1 ? '' : 's'}`}
+                    aria-pressed={rating === value}
+                    className={`text-xl transition ${value <= rating ? 'text-amber-300' : 'text-slate-600'}`}
+                  >
+                    ★
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={submitReview}
+                  disabled={reviewSent}
+                  className="ml-auto rounded-lg bg-blue-600 px-2.5 py-2 text-[11px] font-bold text-white disabled:opacity-50"
+                >
+                  {reviewSent ? 'Thanks!' : 'Submit'}
+                </button>
+              </div>
+            </div>
           </div>
 
           <form onSubmit={sendMessage} className="flex gap-2 border-t border-slate-800 p-3">
