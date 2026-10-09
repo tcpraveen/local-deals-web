@@ -425,7 +425,7 @@ export default function StorefrontPage() {
       {/* Header */}
       <header className="border-b border-slate-800/80 bg-[#090e1c]/95 backdrop-blur-md sticky top-0 z-30 px-3.5 sm:px-8 py-3 transition">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 text-sm font-black text-white">
                 L
@@ -441,6 +441,11 @@ export default function StorefrontPage() {
                     : 'GPS Needed'}
               </span>
             </div>
+          </div>
+          <p className="mt-1 truncate text-[11px] text-slate-400">
+            Verified local retail discovery • Thoothukudi &amp; Authoor
+          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div className="flex shrink-0 items-center gap-2">
               <InstallPrompt />
               <Link
@@ -450,11 +455,7 @@ export default function StorefrontPage() {
                 Merchant Portal
               </Link>
             </div>
-          </div>
-          <p className="mt-1 truncate text-[11px] text-slate-400">
-            Verified local retail discovery • Thoothukudi &amp; Authoor
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => setShowSavedOnly((savedOnly) => !savedOnly)}
@@ -481,6 +482,7 @@ export default function StorefrontPage() {
             >
               {language === 'en' ? 'தமிழ்' : 'EN'}
             </button>
+            </div>
           </div>
         </div>
       </header>
@@ -576,7 +578,7 @@ export default function StorefrontPage() {
                   : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
               }`}
             >
-              {loc === "All" ? "              {translate('All Outlets')}" : loc}
+              {loc === "All" ? translate('All Outlets') : loc}
             </button>
           ))}
         </nav>
