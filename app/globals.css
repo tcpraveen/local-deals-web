@@ -35,6 +35,11 @@ body {
     margin: 0.25in;
   }
 
+  @page storyPoster {
+    size: 4in 7.111in;
+    margin: 0;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -42,6 +47,34 @@ body {
   .print-card,
   .print-card * {
     visibility: visible;
+  }
+
+  .story-poster,
+  .story-poster * {
+    visibility: visible;
+  }
+
+  .poster-print-hidden {
+    display: none !important;
+  }
+
+  .story-poster {
+    page: storyPoster;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    display: flex !important;
+    width: 4in !important;
+    height: 7.111in !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .story-poster-controls {
+    display: none !important;
   }
 
   .print-card {

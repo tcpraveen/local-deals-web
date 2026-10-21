@@ -6,9 +6,12 @@ import { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Deal, isDealActive, normalizeDeal } from '@/lib/deals';
+import { Eye, MapPin, MessageCircle, X } from 'lucide-react';
+import { Deal, isDealActive, normalizeDeal, slugifyStoreName } from '@/lib/deals';
 
 const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
+const CLAIMED_VOUCHERS_STORAGE_KEY = 'ldh_claimed_vouchers';
+const LOCAL_REDEMPTIONS_STORAGE_KEY = 'ldh_local_redeemed_vouchers';
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
   { name: 'Main Bazaar', lat: 8.81, lng: 78.14 },
@@ -106,6 +109,62 @@ function parseCoordinates(value: string): { lat: number; lng: number } | null {
   return null;
 }
 
+function readLocallyRedeemedCodes(): string[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(LOCAL_REDEMPTIONS_STORAGE_KEY) || '[]');
+    return Array.isArray(stored)
+      ? stored.filter((code): code is string => typeof code === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function redeemVoucherLocally(code: string): 'redeemed' | 'already_redeemed' | 'not_found' {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(CLAIMED_VOUCHERS_STORAGE_KEY) || '[]');
+    if (!Array.isArray(stored)) return 'not_found';
+    const voucher = stored.find(
+      (record): record is Record<string, unknown> =>
+        typeof record === 'object' &&
+        record !== null &&
+        'code' in record &&
+        record.code === code
+    );
+    if (!voucher) return 'not_found';
+    if (voucher.redeemed === true) return 'already_redeemed';
+
+    const redeemedAt = new Date().toISOString();
+    const updated = stored.map((record) =>
+      typeof record === 'object' &&
+      record !== null &&
+      'code' in record &&
+      record.code === code
+        ? { ...record, redeemed: true, redeemed_at: redeemedAt }
+        : record
+    );
+    try {
+      localStorage.setItem(CLAIMED_VOUCHERS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      return 'not_found';
+    }
+    try {
+      const redeemedCodes = readLocallyRedeemedCodes();
+      if (!redeemedCodes.includes(code)) {
+        localStorage.setItem(
+          LOCAL_REDEMPTIONS_STORAGE_KEY,
+          JSON.stringify([...redeemedCodes, code])
+        );
+      }
+    } catch {
+      // The redeemed flag on the saved pass is sufficient for same-device validation.
+    }
+    return 'redeemed';
+  } catch {
+    return 'not_found';
+  }
+}
+
 export default function MerchantPortal() {
   const [user, setUser] = useState<User | null>(null);
   const [myDeals, setMyDeals] = useState<Deal[]>([]);
@@ -122,6 +181,7 @@ export default function MerchantPortal() {
 
   // Modals & Scanner States
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [editingDealId, setEditingDealId] = useState<number | string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -130,6 +190,7 @@ export default function MerchantPortal() {
   const [locationCoordinatesLocked, setLocationCoordinatesLocked] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [qrDeal, setQrDeal] = useState<Deal | null>(null);
+  const [posterDeal, setPosterDeal] = useState<Deal | null>(null);
 
   // Scanner State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -207,7 +268,31 @@ export default function MerchantPortal() {
         setRedemptionError('This voucher has already been redeemed.');
         return;
       }
+    } catch {
+      const fallbackStatus = redeemVoucherLocally(normalizedCode);
+      if (fallbackStatus !== 'redeemed') {
+        setRedemptionError(
+          fallbackStatus === 'already_redeemed'
+            ? 'This voucher has already been redeemed.'
+            : 'Unable to verify this voucher online. Check that the pass is saved on this device and try again.'
+        );
+        return;
+      }
+    }
 
+    try {
+      const redeemedCodes = readLocallyRedeemedCodes();
+      if (!redeemedCodes.includes(normalizedCode)) {
+        localStorage.setItem(
+          LOCAL_REDEMPTIONS_STORAGE_KEY,
+          JSON.stringify([...redeemedCodes, normalizedCode])
+        );
+      }
+    } catch {
+      // A successful database redemption remains valid when local storage is unavailable.
+    }
+
+    try {
       const scanner = scannerRef.current;
       scannerRef.current = null;
       if (scanner) {
@@ -221,7 +306,7 @@ export default function MerchantPortal() {
       setRedeemSuccess(true);
       setRedemptionCount((count) => count + 1);
     } catch (error: unknown) {
-      setRedemptionError(`Unable to redeem voucher: ${getErrorMessage(error)}`);
+      setRedemptionError(`Voucher redeemed, but the scanner could not be stopped: ${getErrorMessage(error)}`);
     }
   }, [user]);
 
@@ -261,7 +346,7 @@ export default function MerchantPortal() {
       (deal) => deal.user_id === userId && isDealActive(deal)
     );
     setMyDeals(localDeals);
-    setRedemptionCount(0);
+    setRedemptionCount(readLocallyRedeemedCodes().length);
     try {
       setLoading(true);
       const [dealResult, redemptionResult] = await withTimeout(
@@ -286,7 +371,7 @@ export default function MerchantPortal() {
       );
       setMyDeals(mergeMerchantDeals(databaseDeals, localDeals));
       if (redemptionResult.error) {
-        console.error('Error loading redemption analytics:', redemptionResult.error.message);
+        setRedemptionCount(readLocallyRedeemedCodes().length);
       } else {
         setRedemptionCount(redemptionResult.count || 0);
       }
@@ -608,8 +693,15 @@ export default function MerchantPortal() {
     setIsModalOpen(true);
   };
 
-  const totalInquiries = myDeals.reduce((sum, d) => sum + (d.inquiries_count || 0), 0);
-  const totalDirectionRequests = myDeals.reduce((sum, deal) => sum + (deal.views_count || 0), 0);
+  const totalViews = myDeals.reduce((sum, deal) => sum + (deal.views_count || 0), 0);
+  const totalInquiries = myDeals.reduce(
+    (sum, deal) => sum + (deal.whatsapp_clicks ?? deal.inquiries_count ?? 0),
+    0
+  );
+  const totalDirectionRequests = myDeals.reduce(
+    (sum, deal) => sum + (deal.map_clicks ?? deal.views_count ?? 0),
+    0
+  );
   const printStore = myDeals[0]?.business || '';
   const printStoreUrl = typeof window === 'undefined'
     ? '/'
@@ -913,7 +1005,16 @@ export default function MerchantPortal() {
         <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h2 className="text-sm sm:text-base font-bold text-white">Your Store Deals</h2>
-            <span className="text-xs text-slate-400">{myDeals.length} Listings</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAnalytics(true)}
+                className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20"
+              >
+                Marketing Analytics
+              </button>
+              <span className="text-xs text-slate-400">{myDeals.length} Listings</span>
+            </div>
           </div>
 
           {loading ? (
@@ -965,16 +1066,22 @@ export default function MerchantPortal() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/60">
                       <button
                         onClick={() => setQrDeal(deal)}
-                        className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                        className="py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
                       >
                         📱 QR Stand
                       </button>
                       <button
+                        onClick={() => setPosterDeal(deal)}
+                        className="py-1.5 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-200 rounded-lg text-xs font-medium transition"
+                      >
+                        Story Poster
+                      </button>
+                      <button
                         onClick={() => openEdit(deal)}
-                        className="flex-1 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs font-medium transition"
+                        className="py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs font-medium transition"
                       >
                         Edit
                       </button>
@@ -1034,6 +1141,12 @@ export default function MerchantPortal() {
                             📱 QR Stand
                           </button>
                           <button
+                            onClick={() => setPosterDeal(deal)}
+                            className="px-2.5 py-1 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-200 rounded-lg text-xs transition"
+                          >
+                            Story Poster
+                          </button>
+                          <button
                             onClick={() => openEdit(deal)}
                             className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg text-xs transition"
                           >
@@ -1056,7 +1169,145 @@ export default function MerchantPortal() {
         </div>
       </main>
 
-      <section className="print-card hidden" aria-label="Printable table-top QR card">
+      {showAnalytics && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setShowAnalytics(false)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="merchant-analytics-title"
+            className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-[#0e1628] p-5 shadow-2xl sm:p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <h2 id="merchant-analytics-title" className="text-lg font-black text-white">
+                  Store Marketing Analytics
+                </h2>
+                <p className="mt-1 text-xs text-slate-400">Performance across your active and past offers</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAnalytics(false)}
+                aria-label="Close marketing analytics"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <Eye size={18} className="text-blue-300" aria-hidden="true" />
+                <span className="text-xs font-medium text-slate-400">Total Views</span>
+                <span className="text-2xl font-black text-white">{totalViews}</span>
+              </div>
+              <div className="flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <MessageCircle size={18} className="text-emerald-300" aria-hidden="true" />
+                <span className="text-xs font-medium text-slate-400">WhatsApp Leads Generated</span>
+                <span className="text-2xl font-black text-emerald-300">{totalInquiries}</span>
+              </div>
+              <div className="flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <MapPin size={18} className="text-indigo-300" aria-hidden="true" />
+                <span className="text-xs font-medium text-slate-400">Google Maps Direction Clicks</span>
+                <span className="text-2xl font-black text-indigo-300">{totalDirectionRequests}</span>
+              </div>
+            </div>
+
+            <div className="mt-5 max-h-[35vh] space-y-2 overflow-y-auto">
+              {myDeals.map((deal) => (
+                <div
+                  key={deal.id}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3"
+                >
+                  <span className="min-w-0 truncate text-xs font-semibold text-white">{deal.title}</span>
+                  <span className="shrink-0 text-[11px] text-slate-400">
+                    {deal.views_count || 0} views · {deal.whatsapp_clicks ?? deal.inquiries_count ?? 0} leads · {deal.map_clicks ?? deal.views_count ?? 0} directions
+                  </span>
+                </div>
+              ))}
+              {myDeals.length === 0 && (
+                <p className="py-8 text-center text-sm text-slate-400">
+                  Publish a promotion to start viewing its performance.
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {posterDeal && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center gap-4 overflow-y-auto bg-black/85 p-4 backdrop-blur-md"
+          onClick={() => setPosterDeal(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="story-poster-title"
+            className="flex max-h-[94vh] w-full max-w-sm flex-col items-center gap-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              className="story-poster relative flex aspect-[9/16] w-full flex-col items-center overflow-hidden rounded-[2rem] border border-white/25 bg-gradient-to-br from-fuchsia-600 via-rose-600 to-amber-400 px-6 py-8 text-center text-white shadow-2xl"
+            >
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.35),transparent_38%)]" />
+              <div className="relative flex h-full w-full flex-col items-center">
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/80">
+                  LOCAL DEALS HUB
+                </p>
+                <p className="mt-5 rounded-full border border-white/40 bg-black/15 px-3 py-1 text-[10px] font-bold uppercase tracking-wider">
+                  {posterDeal.location?.toLowerCase().includes('authoor') ? 'Authoor' : 'Thoothukudi'}
+                </p>
+                <h2 className="mt-3 text-2xl font-black leading-tight drop-shadow-lg">
+                  {posterDeal.business}
+                </h2>
+                <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.18em] text-white/85">
+                  EXCLUSIVE LOCAL OFFER
+                </p>
+                <p className="mt-1 text-6xl font-black leading-none tracking-tight drop-shadow-lg">
+                  {posterDeal.discount}
+                </p>
+                <p id="story-poster-title" className="mt-4 text-base font-bold leading-snug">
+                  {posterDeal.title}
+                </p>
+                <div className="mt-auto rounded-2xl bg-white p-2.5 shadow-xl">
+                  <QRCode
+                    value={`${typeof window === 'undefined' ? '' : window.location.origin}/store/${slugifyStoreName(posterDeal.business)}`}
+                    size={132}
+                  />
+                </div>
+                <p className="mt-3 text-[10px] font-semibold text-white/90">
+                  Scan to discover the deal
+                </p>
+              </div>
+            </div>
+            <div className="story-poster-controls flex w-full items-center gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex-1 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-900 transition hover:bg-slate-100"
+              >
+                Print / Save Poster
+              </button>
+              <button
+                type="button"
+                onClick={() => setPosterDeal(null)}
+                className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <section
+        className={`print-card hidden${posterDeal ? ' poster-print-hidden' : ''}`}
+        aria-label="Printable table-top QR card"
+      >
         <div className="print-card-inner">
           {[0, 1].map((face) => (
             <div className={`print-card-face print-card-face-${face}`} key={face}>

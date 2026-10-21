@@ -31,6 +31,9 @@ export interface Deal {
   scarcity_text?: string;
   views_count?: number;
   inquiries_count?: number;
+  whatsapp_clicks?: number;
+  map_clicks?: number;
+  shares_count?: number;
   is_featured?: boolean;
   is_verified_merchant?: boolean;
   store_address?: string;
@@ -167,6 +170,9 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     address: typeof record.address === 'string' ? record.address : undefined,
     views_count: typeof record.views_count === 'number' ? record.views_count : undefined,
     inquiries_count: typeof record.inquiries_count === 'number' ? record.inquiries_count : undefined,
+    whatsapp_clicks: typeof record.whatsapp_clicks === 'number' ? record.whatsapp_clicks : undefined,
+    map_clicks: typeof record.map_clicks === 'number' ? record.map_clicks : undefined,
+    shares_count: typeof record.shares_count === 'number' ? record.shares_count : undefined,
     is_featured: typeof record.is_featured === 'boolean' ? record.is_featured : undefined,
     is_verified_merchant:
       typeof record.is_verified_merchant === 'boolean' ? record.is_verified_merchant : undefined,
@@ -174,7 +180,11 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     google_maps_url: typeof record.google_maps_url === 'string' ? record.google_maps_url : undefined,
     lat: typeof record.lat === 'number' ? record.lat : undefined,
     lng: typeof record.lng === 'number' ? record.lng : undefined,
-    rating: typeof record.rating === 'number' ? record.rating : undefined,
+    rating: typeof record.rating === 'number'
+      ? record.rating
+      : typeof record.rating === 'string' && Number.isFinite(Number(record.rating))
+        ? Number(record.rating)
+        : undefined,
     review_count: typeof record.review_count === 'number' ? record.review_count : undefined,
     reviewsCount: typeof record.reviewsCount === 'number' ? record.reviewsCount : undefined,
     openTime: typeof record.openTime === 'string' ? record.openTime : undefined,

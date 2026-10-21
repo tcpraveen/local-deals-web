@@ -15,6 +15,8 @@ import { isStoreOpen } from "@/lib/storeHours";
 import InstallPrompt from "./InstallPrompt";
 import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
+import DealTimer from "./DealTimer";
+import { Share2 } from "lucide-react";
 
 function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -73,13 +75,59 @@ function isClaimedVoucher(value: unknown): value is ClaimedVoucher {
 const UI_TRANSLATIONS: Record<string, string> = {
   'Claim Voucher': 'வவுச்சரைப் பெறுங்கள்',
   'Open Exact Turn-by-Turn Navigation': 'நேரடி வழித்தடம் (GPS)',
+  'Get Directions': 'வழியைப் பெறுங்கள்',
+  'Claim on WhatsApp': 'WhatsApp மூலம் பெறுங்கள்',
+  'Get QR Pass': 'QR பாஸ் பெறுங்கள்',
+  Share: 'பகிர்',
+  'Link Copied!': 'இணைப்பு நகலெடுக்கப்பட்டது!',
+  'Verified Local Partner': 'சரிபார்க்கப்பட்ட உள்ளூர் வணிகர்',
+  Trending: 'பிரபலமானது',
   'Calculated Distance': 'தொலைவு',
   'Estimated Transit': 'பயண நேரம்',
   'Call Shop': 'அழைக்கவும்',
   'Merchant Portal': 'வியாபாரி பக்கம்',
   'Verified local retail discovery': 'சரிபார்க்கப்பட்ட உள்ளூர் சலுகைகள்',
+  'Verified local retail discovery • Thoothukudi & Authoor': 'தூத்துக்குடி மற்றும் ஆத்தூரின் சரிபார்க்கப்பட்ட உள்ளூர் சலுகைகள்',
+  'Search deals, products, or stores...': 'சலுகைகள், பொருட்கள் அல்லது கடைகளைத் தேடுங்கள்...',
+  Radius: 'தூரம்:',
+  All: 'அனைத்தும்',
+  'Within 2 km': '2 கி.மீ.க்குள்',
+  'Within 5 km': '5 கி.மீ.க்குள்',
+  'Within 10 km': '10 கி.மீ.க்குள்',
+  'Food & Dining': 'உணவு & உணவகம்',
+  'Fashion & Textiles': 'ஆடை & ஜவுளி',
+  Electronics: 'மின்னணுவியல்',
+  'Photography & Studios': 'புகைப்படம் & ஸ்டுடியோ',
+  Groceries: 'மளிகை',
   'All Outlets': 'அனைத்து கடைகள்',
 };
+
+const DEAL_CATEGORIES = [
+  'All',
+  'Food & Dining',
+  'Fashion & Textiles',
+  'Electronics',
+  'Photography & Studios',
+  'Groceries',
+] as const;
+
+const CATEGORY_KEYWORDS: Record<(typeof DEAL_CATEGORIES)[number], string[]> = {
+  All: [],
+  'Food & Dining': ['food', 'dining', 'restaurant', 'cafe'],
+  'Fashion & Textiles': ['fashion', 'textile', 'clothing', 'apparel'],
+  Electronics: ['electronic', 'electrical', 'inverter', 'appliance'],
+  'Photography & Studios': ['photography', 'photographer', 'photo', 'studio'],
+  Groceries: ['grocery', 'groceries', 'supermarket', 'provision'],
+};
+
+function matchesDealCategory(deal: Deal, selectedCategory: (typeof DEAL_CATEGORIES)[number]): boolean {
+  if (selectedCategory === 'All') return true;
+  const searchableText = [deal.category, deal.title, deal.business]
+    .filter(Boolean)
+    .join(' ')
+    .toLocaleLowerCase();
+  return CATEGORY_KEYWORDS[selectedCategory].some((keyword) => searchableText.includes(keyword));
+}
 
 async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -147,6 +195,8 @@ export default function StorefrontPage() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const locationStatusRef = useRef(locationStatus);
   const [selectedArea, setSelectedArea] = useState<string>("All");
+  const [selectedCategory, setSelectedCategory] =
+    useState<(typeof DEAL_CATEGORIES)[number]>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [maxRadius, setMaxRadius] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -159,6 +209,8 @@ export default function StorefrontPage() {
   const [shareToast, setShareToast] = useState<string | null>(null);
   const shareToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const engagementCounts = useRef<Record<string, number>>({});
+  const viewedDealIds = useRef(new Set<string>());
+  const dealListRef = useRef<HTMLElement | null>(null);
   const finishSplash = useCallback(() => setShowSplash(false), []);
   const translate = (text: string) => language === 'ta' ? UI_TRANSLATIONS[text] || text : text;
 
@@ -354,21 +406,33 @@ export default function StorefrontPage() {
   };
 
   const handleShareDeal = async (deal: Deal) => {
-    const url = `${window.location.origin}/store/${slugifyStoreName(deal.business)}`;
+    const url = new URL(
+      `/store/${slugifyStoreName(deal.business)}`,
+      window.location.origin
+    );
+    url.searchParams.set('utm_source', 'whatsapp_share');
+    url.searchParams.set('utm_medium', 'social');
+    url.searchParams.set('deal_id', String(deal.id));
+    void recordDealMetric(deal, 'shares_count');
     const shareData = {
       title: deal.title,
-      text: `Check out ${deal.discount} at ${deal.business} (${deal.location || 'nearby'}) on Local Deals Hub!`,
-      url,
+      text: `Check out ${deal.title} at ${deal.business} on Local Deals Hub!`,
+      url: url.toString(),
     };
+
     try {
       if (navigator.share) {
         await navigator.share(shareData);
         return;
       }
-      await navigator.clipboard.writeText(url);
-      setShareToast('Deal link copied to clipboard!');
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setShareToast(translate('Link Copied!'));
+    } catch (error) {
       console.error('Unable to share or copy the deal link:', error);
       setShareToast('Unable to share the deal link. Please try again.');
     }
@@ -377,9 +441,9 @@ export default function StorefrontPage() {
     shareToastTimer.current = setTimeout(() => setShareToast(null), 2500);
   };
 
-  const recordDealMetric = async (
+  const recordDealMetric = useCallback(async (
     deal: Deal,
-    metric: 'views_count' | 'inquiries_count'
+    metric: 'views_count' | 'inquiries_count' | 'whatsapp_clicks' | 'map_clicks' | 'shares_count'
   ) => {
     const counterKey = `${deal.id}:${metric}`;
     const previousValue = engagementCounts.current[counterKey] ?? deal[metric] ?? 0;
@@ -403,6 +467,7 @@ export default function StorefrontPage() {
         if (error) throw error;
       })
       .catch((error: unknown) => {
+        if (metric === 'shares_count') return;
         console.error(`Unable to record ${metric} for deal ${deal.id}:`, error);
         const currentValue = engagementCounts.current[counterKey] ?? nextValue;
         engagementCounts.current[counterKey] = Math.max(0, currentValue - 1);
@@ -414,7 +479,7 @@ export default function StorefrontPage() {
           )
         );
       });
-  };
+  }, []);
 
   const filteredDeals = useMemo(() => deals.filter((deal) => {
     const normalizedArea = selectedArea.trim().toLocaleLowerCase();
@@ -428,6 +493,7 @@ export default function StorefrontPage() {
       [deal.title, deal.business, deal.category, deal.location || '']
         .some((value) => value.toLocaleLowerCase().includes(query));
     const matchesSaved = !showSavedOnly || favorites.includes(String(deal.id));
+    const matchesCategory = matchesDealCategory(deal, selectedCategory);
     const distance = coords && typeof deal.lat === 'number' && typeof deal.lng === 'number'
       ? calculateDistance(coords.lat, coords.lng, deal.lat, deal.lng)
       : null;
@@ -436,9 +502,41 @@ export default function StorefrontPage() {
     const matchesRadius =
       maxRadius === null ||
       !hasActiveLocation ||
-      (distance !== null && distance <= maxRadius);
-    return matchesArea && matchesSearch && matchesSaved && matchesRadius;
-  }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, coords, maxRadius, locationStatus]);
+      distance === null ||
+      distance <= maxRadius;
+    return matchesArea && matchesSearch && matchesSaved && matchesCategory && matchesRadius;
+  }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, selectedCategory, coords, maxRadius, locationStatus]);
+
+  useEffect(() => {
+    const list = dealListRef.current;
+    if (!list) return;
+
+    const recordImpression = (dealId: string) => {
+      if (viewedDealIds.current.has(dealId)) return;
+      const deal = filteredDeals.find((item) => String(item.id) === dealId);
+      if (!deal) return;
+      viewedDealIds.current.add(dealId);
+      void recordDealMetric(deal, 'views_count');
+    };
+
+    if (typeof IntersectionObserver === 'undefined') {
+      filteredDeals.forEach((deal) => recordImpression(String(deal.id)));
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        if (!(entry.target instanceof HTMLElement)) return;
+        const dealId = entry.target.dataset.dealId;
+        if (dealId) recordImpression(dealId);
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.15 });
+
+    list.querySelectorAll<HTMLElement>('[data-deal-id]').forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [filteredDeals, recordDealMetric]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
@@ -464,7 +562,7 @@ export default function StorefrontPage() {
             </div>
           </div>
           <p className="mt-1 truncate text-[11px] text-slate-400">
-            Verified local retail discovery • Thoothukudi &amp; Authoor
+            {translate('Verified local retail discovery • Thoothukudi & Authoor')}
           </p>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div className="flex shrink-0 items-center gap-2">
@@ -477,6 +575,37 @@ export default function StorefrontPage() {
               </Link>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+            <div
+              role="group"
+              aria-label="Select language"
+              className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-[11px] font-bold"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (language !== 'en') toggleLanguage();
+                }}
+                aria-pressed={language === 'en'}
+                className={`rounded-md px-2 py-1 transition ${
+                  language === 'en' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                EN
+              </button>
+              <span className="px-0.5 text-slate-600" aria-hidden="true">|</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (language !== 'ta') toggleLanguage();
+                }}
+                aria-pressed={language === 'ta'}
+                className={`rounded-md px-2 py-1 transition ${
+                  language === 'ta' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                தமிழ்
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setShowSavedOnly((savedOnly) => !savedOnly)}
@@ -551,25 +680,46 @@ export default function StorefrontPage() {
           </p>
         )}
 
+        <nav
+          aria-label={language === 'ta' ? 'வகை வாரியாக சலுகைகளை வடிகட்டவும்' : 'Filter deals by category'}
+          className="flex items-center gap-2 overflow-x-auto pb-1"
+        >
+          {DEAL_CATEGORIES.map((category) => (
+            <button
+              key={category}
+              type="button"
+              aria-pressed={selectedCategory === category}
+              onClick={() => setSelectedCategory(category)}
+              className={`whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-bold transition ${
+                selectedCategory === category
+                  ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                  : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-white'
+              }`}
+            >
+              {translate(category)}
+            </button>
+          ))}
+        </nav>
+
         <section className="flex flex-col gap-3 md:flex-row md:items-center">
           <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search deals, products, or stores</span>
+            <span className="sr-only">{translate('Search deals, products, or stores...')}</span>
             <span aria-hidden="true" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-500">🔍</span>
             <input
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search deals, products, or stores..."
+              placeholder={translate('Search deals, products, or stores...')}
               className="w-full rounded-2xl border border-slate-800 bg-[#0d162a] py-3 pl-10 pr-4 text-xs text-white placeholder:text-slate-500 outline-none transition focus:border-blue-500"
             />
           </label>
           <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-2xl border border-slate-800 bg-[#0d162a] p-1.5">
-            <span className="px-2 text-[11px] font-bold text-slate-400">Radius:</span>
+            <span className="px-2 text-[11px] font-bold text-slate-400">{translate('Radius')}</span>
             {[
               { label: 'All', value: null },
-              { label: '< 2 km', value: 2 },
-              { label: '< 5 km', value: 5 },
-              { label: '< 25 km', value: 25 },
+              { label: 'Within 2 km', value: 2 },
+              { label: 'Within 5 km', value: 5 },
+              { label: 'Within 10 km', value: 10 },
             ].map((option) => (
               <button
                 type="button"
@@ -581,7 +731,7 @@ export default function StorefrontPage() {
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {option.label}
+                {translate(option.label)}
               </button>
             ))}
           </div>
@@ -605,7 +755,7 @@ export default function StorefrontPage() {
         </nav>
 
         {/* Deals Listing */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section ref={dealListRef} className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {dealsLoading ? (
             <p className="col-span-full py-16 text-center text-sm text-slate-400">Loading verified deals...</p>
           ) : filteredDeals.length === 0 ? (
@@ -640,6 +790,7 @@ export default function StorefrontPage() {
             return (
               <article
                 key={deal.id}
+                data-deal-id={String(deal.id)}
                 className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition"
               >
                 <div>
@@ -676,11 +827,32 @@ export default function StorefrontPage() {
                       </button>
                     </div>
                   </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold text-blue-200">
+                      ✓ {translate('Verified Local Partner')}
+                    </span>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-200">
+                      ★ {typeof deal.rating === 'number' ? deal.rating.toFixed(1) : 'New'}
+                    </span>
+                    {(
+                      (deal.views_count || 0) +
+                      (deal.whatsapp_clicks || 0) +
+                      (deal.map_clicks || 0) >= 10 ||
+                      Number((discountText.match(/(\d+(?:\.\d+)?)\s*%/) || [])[1] || 0) >= 30
+                    ) && (
+                      <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] font-bold text-orange-200">
+                        🔥 {translate('Trending')}
+                      </span>
+                    )}
+                  </div>
 
                   {/* Title & Shop Details */}
                   <h2 className="text-xl font-black mt-3 text-white">{businessName}</h2>
                   <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
                   <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
+                  <div className="mt-3">
+                    <DealTimer expiresAt={deal.expires_at} />
+                  </div>
 
                   {/* Live Travel Distance / Navigation Status */}
                   <div className="mt-4 p-3.5 bg-slate-950/90 rounded-xl border border-slate-800/80 flex items-center justify-between">
@@ -743,38 +915,33 @@ export default function StorefrontPage() {
                       {translate('Call Shop')}
                     </a>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {whatsappNumber && (
                     <a
                       href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-                        `Vanakkam! I want to claim the ${discountText || 'special offer'} for ${deal.title} seen on Local Deals Hub.`
+                        `Hi, I found your deal "${deal.title}" on Local Deals Hub (Code: LDH20) and would like to claim it!`
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => void recordDealMetric(deal, 'inquiries_count')}
-                      className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-3 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
+                      onClick={() => void recordDealMetric(deal, 'whatsapp_clicks')}
+                      className="col-span-2 flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-2 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
                     >
-                      <span aria-hidden="true">💬</span> WhatsApp
+                      <span aria-hidden="true">💬</span> {translate('Claim on WhatsApp')}
                     </a>
                     )}
                     <button
                       type="button"
                       onClick={() => void handleShareDeal(deal)}
-                      aria-label={`Share ${businessName} deal`}
-                      className="p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center"
+                      aria-label={`${translate('Share')} ${businessName} deal`}
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-2 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-700"
                     >
-                      📤
+                      <Share2 size={15} aria-hidden="true" /> {translate('Share')}
                     </button>
                     <button
                       onClick={() => handleClaim(deal)}
-                      disabled={!!voucherCode}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-                        voucherCode
-                          ? "bg-slate-800 text-slate-400 cursor-default"
-                          : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20"
-                      }`}
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600/20 px-2 py-2.5 text-xs font-bold text-indigo-200 transition hover:bg-indigo-600/30"
                     >
-                      {voucherCode ? "Claimed" : translate('Claim Voucher')}
+                      {translate('Get QR Pass')}
                     </button>
                   </div>
 
@@ -783,10 +950,10 @@ export default function StorefrontPage() {
                     href={getDirectionsUrl(deal)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => void recordDealMetric(deal, 'views_count')}
+                    onClick={() => void recordDealMetric(deal, 'map_clicks')}
                     className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
                   >
-                    <span>{translate('Open Exact Turn-by-Turn Navigation')}</span>
+                    <span>{translate('Get Directions')}</span>
                     <span aria-hidden="true">→</span>
                   </a>
                 </div>
@@ -811,6 +978,15 @@ export default function StorefrontPage() {
             <p className="mt-5 rounded-xl border border-blue-500/30 bg-slate-950 px-4 py-4 font-mono text-2xl font-black tracking-[0.2em] text-white">
               {activeVoucher.code}
             </p>
+            <div className="mx-auto mt-4 inline-flex rounded-2xl bg-white p-2.5">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(activeVoucher.code)}`}
+                alt={`QR code for voucher ${activeVoucher.code}`}
+                width={180}
+                height={180}
+                className="h-[180px] w-[180px]"
+              />
+            </div>
             <p className="mt-3 text-xs text-slate-400">Present this code at the counter to claim your offer.</p>
             <button
               type="button"
