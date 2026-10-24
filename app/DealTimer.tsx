@@ -5,12 +5,22 @@ import { Clock3 } from 'lucide-react';
 
 interface DealTimerProps {
   expiresAt?: string;
+  isDemo?: boolean;
 }
 
-function getExpiryTime(expiresAt: string): number {
+function getExpiryTime(expiresAt?: string): number {
+  if (!expiresAt) return Number.NaN;
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(expiresAt);
   const parsed = new Date(dateOnly ? `${expiresAt}T23:59:59` : expiresAt).getTime();
   return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function getEffectiveExpiry(expiresAt: string | undefined, isDemo: boolean): number {
+  const parsedExpiry = getExpiryTime(expiresAt);
+  if (isDemo && (!Number.isFinite(parsedExpiry) || parsedExpiry <= Date.now())) {
+    return Date.now() + 24 * 60 * 60 * 1000;
+  }
+  return parsedExpiry;
 }
 
 function formatRemaining(milliseconds: number): string {
@@ -23,43 +33,47 @@ function formatRemaining(milliseconds: number): string {
   return `Ends in ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`;
 }
 
-export default function DealTimer({ expiresAt }: DealTimerProps) {
-  const [remaining, setRemaining] = useState<{ expiresAt: string; milliseconds: number } | null>(null);
+export default function DealTimer({ expiresAt, isDemo = false }: DealTimerProps) {
+  const [remaining, setRemaining] = useState<{ key: string; milliseconds: number } | null>(null);
 
   useEffect(() => {
-    if (!expiresAt) return;
-    const expiryTime = getExpiryTime(expiresAt);
+    let expiryTime = getEffectiveExpiry(expiresAt, isDemo);
     if (!Number.isFinite(expiryTime)) return;
 
     const updateRemaining = () => {
-      setRemaining({ expiresAt, milliseconds: Math.max(0, expiryTime - Date.now()) });
+      const now = Date.now();
+      if (isDemo && expiryTime <= now) {
+        expiryTime = now + 24 * 60 * 60 * 1000;
+      }
+      setRemaining({ key: `${expiresAt ?? ''}:${isDemo}`, milliseconds: expiryTime - now });
     };
-    updateRemaining();
+    const initialUpdateId = window.setTimeout(updateRemaining, 0);
     const timerId = window.setInterval(updateRemaining, 30_000);
-    return () => window.clearInterval(timerId);
-  }, [expiresAt]);
+    return () => {
+      window.clearTimeout(initialUpdateId);
+      window.clearInterval(timerId);
+    };
+  }, [expiresAt, isDemo]);
 
-  if (!expiresAt || !Number.isFinite(getExpiryTime(expiresAt)) || remaining?.expiresAt !== expiresAt) {
+  const key = `${expiresAt ?? ''}:${isDemo}`;
+  if ((!Number.isFinite(getExpiryTime(expiresAt)) && !isDemo) || remaining?.key !== key) {
     return null;
   }
 
   const isUrgent =
     remaining.milliseconds > 0 && remaining.milliseconds < 6 * 60 * 60 * 1000;
-  const isExpired = remaining.milliseconds === 0;
 
   return (
     <span
       role="status"
       className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-        isExpired
-          ? 'border-slate-700 bg-slate-800 text-slate-400'
-          : isUrgent
-            ? 'animate-pulse border-orange-500/40 bg-red-500/10 text-orange-300'
-            : 'border-blue-500/30 bg-blue-500/10 text-blue-200'
+        isUrgent
+          ? 'animate-pulse border-orange-500/40 bg-red-500/10 text-orange-300'
+          : 'border-blue-500/30 bg-blue-500/10 text-blue-200'
       }`}
     >
       <Clock3 size={13} aria-hidden="true" />
-      {isExpired ? 'Deal ended' : formatRemaining(remaining.milliseconds)}
+      {formatRemaining(remaining.milliseconds)}
     </span>
   );
 }

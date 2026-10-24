@@ -34,10 +34,14 @@ export interface Deal {
   whatsapp_clicks?: number;
   map_clicks?: number;
   shares_count?: number;
+  is_demo?: boolean;
   is_featured?: boolean;
   is_verified_merchant?: boolean;
   store_address?: string;
   google_maps_url?: string;
+  maps_url?: string;
+  location_url?: string;
+  landmark?: string;
   lat?: number;
   lng?: number;
   rating?: number;
@@ -58,9 +62,15 @@ export interface StorefrontDeal extends Deal {
   lng: number;
 }
 
+function demoExpiryInHours(hours: number): string {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
 export const VERIFIED_REAL_DEALS: Deal[] = [
   {
     id: 'mj-traders-thoothukudi',
+    is_demo: true,
+    expires_at: demoExpiryInHours(4),
     business: 'MJ Traders',
     category: 'Retail',
     title: 'Up to 30% Off Commercial Brass & Cookware',
@@ -88,6 +98,8 @@ export const VERIFIED_REAL_DEALS: Deal[] = [
   },
   {
     id: 'vrc-authoor',
+    is_demo: true,
+    expires_at: demoExpiryInHours(14),
     business: 'VRC Electronics',
     category: 'Retail',
     title: 'Flat 25% Off Inverters & Solar Battery Sets',
@@ -173,11 +185,19 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     whatsapp_clicks: typeof record.whatsapp_clicks === 'number' ? record.whatsapp_clicks : undefined,
     map_clicks: typeof record.map_clicks === 'number' ? record.map_clicks : undefined,
     shares_count: typeof record.shares_count === 'number' ? record.shares_count : undefined,
+    is_demo: typeof record.is_demo === 'boolean' ? record.is_demo : undefined,
     is_featured: typeof record.is_featured === 'boolean' ? record.is_featured : undefined,
     is_verified_merchant:
       typeof record.is_verified_merchant === 'boolean' ? record.is_verified_merchant : undefined,
     store_address: typeof record.store_address === 'string' ? record.store_address : undefined,
-    google_maps_url: typeof record.google_maps_url === 'string' ? record.google_maps_url : undefined,
+    google_maps_url:
+      (typeof record.google_maps_url === 'string' && record.google_maps_url) ||
+      (typeof record.maps_url === 'string' && record.maps_url) ||
+      (typeof record.location_url === 'string' && record.location_url) ||
+      undefined,
+    maps_url: typeof record.maps_url === 'string' ? record.maps_url : undefined,
+    location_url: typeof record.location_url === 'string' ? record.location_url : undefined,
+    landmark: typeof record.landmark === 'string' ? record.landmark : undefined,
     lat: typeof record.lat === 'number' ? record.lat : undefined,
     lng: typeof record.lng === 'number' ? record.lng : undefined,
     rating: typeof record.rating === 'number'
@@ -215,7 +235,10 @@ export function slugifyStoreName(name: string): string {
 export function isDealActive(deal: Deal): boolean {
   if (deal.is_active === false) return false;
   if (!deal.expires_at) return true;
-  const expiry = new Date(`${deal.expires_at}T23:59:59`).getTime();
+  const expiration = /^\d{4}-\d{2}-\d{2}$/.test(deal.expires_at)
+    ? `${deal.expires_at}T23:59:59`
+    : deal.expires_at;
+  const expiry = new Date(expiration).getTime();
   return Number.isFinite(expiry) && expiry >= Date.now();
 }
 
