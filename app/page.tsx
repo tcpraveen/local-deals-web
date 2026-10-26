@@ -18,17 +18,87 @@ import AIAssistant from "./AIAssistant";
 import DealTimer from "./DealTimer";
 import { Share2 } from "lucide-react";
 
+interface StoreHoursStatusProps {
+  openTime?: string;
+  closeTime?: string;
+  fallbackStatus?: boolean | null;
+}
+
+function StoreHoursStatus({ openTime, closeTime, fallbackStatus }: StoreHoursStatusProps) {
+  const [isOpen, setIsOpen] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      if (openTime && closeTime) {
+        setIsOpen(isStoreOpen(openTime, closeTime));
+      } else {
+        setIsOpen(fallbackStatus ?? null);
+      }
+    };
+
+    const initialUpdate = window.setTimeout(updateStatus, 0);
+    const interval = window.setInterval(updateStatus, 60_000);
+    return () => {
+      window.clearTimeout(initialUpdate);
+      window.clearInterval(interval);
+    };
+  }, [openTime, closeTime, fallbackStatus]);
+
+  if (isOpen === null) return null;
+
+  return (
+    <span
+      role="status"
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-bold ${
+        isOpen
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+          : 'border-rose-500/25 bg-rose-500/5 text-rose-300'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${
+          isOpen ? 'animate-pulse bg-emerald-400' : 'bg-rose-400'
+        }`}
+      />
+      {isOpen ? 'Open Now' : 'Closed'}
+    </span>
+  );
+}
+
 function createVoucherCode(): string {
   return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 function getDirectionsUrl(deal: Deal): string {
-  if (typeof deal.lat === 'number' && typeof deal.lng === 'number') {
-    return `https://www.google.com/maps/dir/?api=1&destination=${deal.lat},${deal.lng}&destination_place_id=&travelmode=driving`;
+  const savedMapsUrl = deal.maps_url || deal.location_url || deal.google_maps_url;
+  if (savedMapsUrl) {
+    try {
+      const mapsUrl = new URL(savedMapsUrl);
+      const mapsHosts = ['google.com', 'www.google.com', 'maps.google.com', 'maps.app.goo.gl', 'goo.gl'];
+      if (
+        mapsUrl.protocol === 'https:' &&
+        mapsHosts.includes(mapsUrl.hostname.toLowerCase())
+      ) {
+        return mapsUrl.toString();
+      }
+    } catch {
+      // Invalid legacy URLs fall back to a generated Maps destination.
+    }
+  }
+
+  const store = deal.storeName || deal.business;
+  const area = deal.landmark || deal.location || deal.address || deal.store_address || '';
+  const preciseDestination =
+    typeof deal.lat === 'number' && typeof deal.lng === 'number'
+      ? `${store}, ${area} (${deal.lat},${deal.lng})`
+      : `${store}, ${area}`;
+  if (preciseDestination.trim()) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(preciseDestination)}&travelmode=driving`;
   }
 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    `${deal.business}, ${deal.address || deal.store_address || deal.location || ''}`
+    `${store}, ${area}`
   )}`;
 }
 
@@ -94,6 +164,10 @@ const UI_TRANSLATIONS: Record<string, string> = {
   'Within 2 km': '2 கி.மீ.க்குள்',
   'Within 5 km': '5 கி.மீ.க்குள்',
   'Within 10 km': '10 கி.மீ.க்குள்',
+  'Store Location Preview': 'கடை இருப்பிட முன்னோட்டம்',
+  'Open Exact Shop in Google Maps': 'கடையின் சரியான இடத்தை Google Maps-ல் திறக்கவும்',
+  'Copy Store Name & Coordinates': 'கடை பெயர் மற்றும் ஆயத்தொலைவுகளை நகலெடுக்கவும்',
+  'Location details copied!': 'இருப்பிட விவரங்கள் நகலெடுக்கப்பட்டன!',
   'Food & Dining': 'உணவு & உணவகம்',
   'Fashion & Textiles': 'ஆடை & ஜவுளி',
   Electronics: 'மின்னணுவியல்',
@@ -204,6 +278,7 @@ export default function StorefrontPage() {
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
   const [claimedVouchers, setClaimedVouchers] = useState<ClaimedVoucher[]>([]);
   const [activeVoucher, setActiveVoucher] = useState<{ deal: Deal; code: string } | null>(null);
+  const [locationPreviewDeal, setLocationPreviewDeal] = useState<Deal | null>(null);
   const [showClaimedVouchers, setShowClaimedVouchers] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
@@ -439,6 +514,24 @@ export default function StorefrontPage() {
 
     if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
     shareToastTimer.current = setTimeout(() => setShareToast(null), 2500);
+  };
+
+  const copyStoreLocation = async (deal: Deal) => {
+    const coordinates =
+      typeof deal.lat === 'number' && typeof deal.lng === 'number'
+        ? ` (${deal.lat.toFixed(6)}, ${deal.lng.toFixed(6)})`
+        : '';
+    try {
+      await navigator.clipboard.writeText(
+        `${deal.storeName || deal.business}${deal.location ? `, ${deal.location}` : ''}${deal.landmark ? ` — ${deal.landmark}` : ''}${coordinates}`
+      );
+      setShareToast(translate('Location details copied!'));
+      if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
+      shareToastTimer.current = setTimeout(() => setShareToast(null), 2500);
+    } catch (error) {
+      console.error('Unable to copy store location:', error);
+      setShareToast('Unable to copy store location.');
+    }
   };
 
   const recordDealMetric = useCallback(async (
@@ -774,14 +867,8 @@ export default function StorefrontPage() {
             const dealPrice = deal.discountPrice ?? deal.deal_price ?? deal.price ?? discountText;
             const vouchersLeft = deal.vouchersLeft ?? deal.vouchers_left;
             const isFavorite = favorites.includes(String(deal.id));
-            const storeOpen =
-              typeof deal.isOpen === 'boolean'
-                ? deal.isOpen
-                : typeof deal.opening_time === 'string' &&
-                    typeof deal.closing_time === 'string'
-                  ? isStoreOpen(deal.opening_time, deal.closing_time)
-                  : null;
             const phoneDigits = (deal.whatsappNumber || deal.phone || '').replace(/\D/g, '');
+            const canCall = phoneDigits.length >= 7 && phoneDigits.length <= 15;
             const whatsappNumber =
               phoneDigits.length === 10
                 ? `91${phoneDigits}`
@@ -800,15 +887,11 @@ export default function StorefrontPage() {
                       {deal.location}
                     </span>
                     <div className="flex items-center gap-2">
-                      {storeOpen !== null && (
-                        <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${
-                          storeOpen
-                            ? 'border-emerald-700 bg-emerald-950/70 text-emerald-300'
-                            : 'border-slate-700 bg-slate-800 text-slate-400'
-                        }`}>
-                          {storeOpen ? 'Open Now' : 'Closed'}
-                        </span>
-                      )}
+                      <StoreHoursStatus
+                        openTime={deal.opening_time || deal.openTime}
+                        closeTime={deal.closing_time || deal.closeTime}
+                        fallbackStatus={deal.isOpen}
+                      />
                       <span className="text-xs font-black px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">
                         {discountText}
                       </span>
@@ -849,9 +932,12 @@ export default function StorefrontPage() {
                   {/* Title & Shop Details */}
                   <h2 className="text-xl font-black mt-3 text-white">{businessName}</h2>
                   <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
-                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                    {deal.address}
+                    {deal.landmark && <span className="block text-slate-300">Landmark: {deal.landmark}</span>}
+                  </p>
                   <div className="mt-3">
-                    <DealTimer expiresAt={deal.expires_at} />
+                    <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo === true} />
                   </div>
 
                   {/* Live Travel Distance / Navigation Status */}
@@ -907,14 +993,6 @@ export default function StorefrontPage() {
 
                 {/* Direct Actions */}
                 <div className="mt-6 pt-4 border-t border-slate-800/70 flex flex-col gap-2">
-                  <div className="mb-2 flex items-center justify-between">
-                    <a
-                      href={phoneDigits ? `tel:${phoneDigits}` : undefined}
-                      className="text-xs font-semibold text-slate-400 transition hover:text-white"
-                    >
-                      {translate('Call Shop')}
-                    </a>
-                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     {whatsappNumber && (
                     <a
@@ -946,16 +1024,30 @@ export default function StorefrontPage() {
                   </div>
 
                   {/* Exact Turn-by-Turn GPS Navigation */}
-                  <a
-                    href={getDirectionsUrl(deal)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => void recordDealMetric(deal, 'map_clicks')}
-                    className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
-                  >
-                    <span>{translate('Get Directions')}</span>
-                    <span aria-hidden="true">→</span>
-                  </a>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreviewDeal(deal)}
+                      className="text-center py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
+                    >
+                      <span>{translate('Get Directions')}</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                    {canCall ? (
+                      <a
+                        href={`tel:${phoneDigits}`}
+                        aria-label={`${translate('Call Shop')} ${businessName}`}
+                        className="text-center py-2.5 px-3 rounded-xl border border-emerald-500/40 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-200 font-bold text-xs tracking-wide transition flex items-center justify-center gap-1.5"
+                      >
+                        <span aria-hidden="true">☎</span>
+                        {translate('Call Shop')}
+                      </a>
+                    ) : (
+                      <span className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5 text-center text-[11px] font-medium text-slate-500">
+                        {translate('Call Shop')} unavailable
+                      </span>
+                    )}
+                  </div>
                 </div>
               </article>
             );
@@ -995,6 +1087,87 @@ export default function StorefrontPage() {
             >
               Done
             </button>
+          </section>
+        </div>
+      )}
+      {locationPreviewDeal && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setLocationPreviewDeal(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="store-location-preview-title"
+            className="w-full max-w-xl rounded-t-3xl border border-slate-700 bg-[#0e1628] p-5 shadow-2xl sm:rounded-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300">
+                  {translate('Store Location Preview')}
+                </p>
+                <h2 id="store-location-preview-title" className="mt-1 text-xl font-black text-white">
+                  {locationPreviewDeal.storeName || locationPreviewDeal.business}
+                </h2>
+                <span className="mt-2 inline-flex rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-slate-300">
+                  {locationPreviewDeal.category}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocationPreviewDeal(null)}
+                aria-label="Close store location preview"
+                className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-300">
+              {[locationPreviewDeal.location, locationPreviewDeal.landmark, locationPreviewDeal.address]
+                .filter(Boolean)
+                .join(' · ')}
+              {coords && typeof locationPreviewDeal.lat === 'number' && typeof locationPreviewDeal.lng === 'number' && (
+                <span className="ml-1 text-blue-300">
+                  · {calculateDistance(coords.lat, coords.lng, locationPreviewDeal.lat, locationPreviewDeal.lng).toFixed(2)} km away
+                </span>
+              )}
+                {!coords && <span className="ml-1 text-slate-400">· Enable GPS for exact distance</span>}
+            </p>
+            {typeof locationPreviewDeal.lat === 'number' && typeof locationPreviewDeal.lng === 'number' ? (
+              <iframe
+                title={`Map preview for ${locationPreviewDeal.storeName || locationPreviewDeal.business}`}
+                src={`https://www.google.com/maps?q=${locationPreviewDeal.lat},${locationPreviewDeal.lng}&z=18&output=embed`}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="mt-4 h-64 w-full rounded-2xl border border-slate-700 bg-slate-900"
+              />
+            ) : (
+              <div className="mt-4 flex h-48 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900 px-6 text-center text-sm text-slate-400">
+                Exact coordinates are not available. Use the verified store name and area in Google Maps.
+              </div>
+            )}
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void copyStoreLocation(locationPreviewDeal)}
+                className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold text-slate-200 transition hover:bg-slate-800"
+              >
+                {translate('Copy Store Name & Coordinates')}
+              </button>
+              <a
+                href={getDirectionsUrl(locationPreviewDeal)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  void recordDealMetric(locationPreviewDeal, 'map_clicks');
+                  setLocationPreviewDeal(null);
+                }}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-center text-xs font-bold text-white transition hover:bg-blue-500"
+              >
+                {translate('Open Exact Shop in Google Maps')}
+              </a>
+            </div>
           </section>
         </div>
       )}
