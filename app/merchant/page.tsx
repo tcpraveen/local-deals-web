@@ -8,10 +8,9 @@ import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Eye, MapPin, MessageCircle, X } from 'lucide-react';
 import { Deal, isDealActive, normalizeDeal, slugifyStoreName } from '@/lib/deals';
+import FlashDealBroadcast from './FlashDealBroadcast';
 
 const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
-const CLAIMED_VOUCHERS_STORAGE_KEY = 'ldh_claimed_vouchers';
-const LOCAL_REDEMPTIONS_STORAGE_KEY = 'ldh_local_redeemed_vouchers';
 const CATEGORIES = ['Fashion', 'Services', 'Venues', 'Food', 'Retail'];
 const LOCATIONS = [
   { name: 'Main Bazaar', lat: 8.81, lng: 78.14 },
@@ -110,60 +109,11 @@ function parseCoordinates(value: string): { lat: number; lng: number } | null {
   return null;
 }
 
-function readLocallyRedeemedCodes(): string[] {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(LOCAL_REDEMPTIONS_STORAGE_KEY) || '[]');
-    return Array.isArray(stored)
-      ? stored.filter((code): code is string => typeof code === 'string')
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function redeemVoucherLocally(code: string): 'redeemed' | 'already_redeemed' | 'not_found' {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(CLAIMED_VOUCHERS_STORAGE_KEY) || '[]');
-    if (!Array.isArray(stored)) return 'not_found';
-    const voucher = stored.find(
-      (record): record is Record<string, unknown> =>
-        typeof record === 'object' &&
-        record !== null &&
-        'code' in record &&
-        record.code === code
-    );
-    if (!voucher) return 'not_found';
-    if (voucher.redeemed === true) return 'already_redeemed';
-
-    const redeemedAt = new Date().toISOString();
-    const updated = stored.map((record) =>
-      typeof record === 'object' &&
-      record !== null &&
-      'code' in record &&
-      record.code === code
-        ? { ...record, redeemed: true, redeemed_at: redeemedAt }
-        : record
-    );
-    try {
-      localStorage.setItem(CLAIMED_VOUCHERS_STORAGE_KEY, JSON.stringify(updated));
-    } catch {
-      return 'not_found';
-    }
-    try {
-      const redeemedCodes = readLocallyRedeemedCodes();
-      if (!redeemedCodes.includes(code)) {
-        localStorage.setItem(
-          LOCAL_REDEMPTIONS_STORAGE_KEY,
-          JSON.stringify([...redeemedCodes, code])
-        );
-      }
-    } catch {
-      // The redeemed flag on the saved pass is sufficient for same-device validation.
-    }
-    return 'redeemed';
-  } catch {
-    return 'not_found';
-  }
+interface ValidatedVoucher {
+  code: string;
+  business: string;
+  dealTitle: string;
+  discount: string;
 }
 
 export default function MerchantPortal() {
@@ -197,11 +147,13 @@ export default function MerchantPortal() {
 
   // Scanner State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scannedResult, setScannedResult] = useState<string | null>(null);
   const [redeemSuccess, setRedeemSuccess] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const [voucherCode, setVoucherCode] = useState('');
   const [redemptionError, setRedemptionError] = useState('');
+  const [validatedVoucher, setValidatedVoucher] = useState<ValidatedVoucher | null>(null);
+  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
+  const [isRedeemingVoucher, setIsRedeemingVoucher] = useState(false);
   const [redemptionCount, setRedemptionCount] = useState(0);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const scanInProgressRef = useRef(false);
@@ -251,68 +203,95 @@ export default function MerchantPortal() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleVoucherCodeRedeem = useCallback(async (code: string) => {
+  const handleVoucherCodeRedeem = useCallback(async (code: string): Promise<boolean> => {
     const normalizedCode = code.trim().toUpperCase();
     setRedeemSuccess(false);
     setRedemptionError('');
-    if (!/^LDH-(?:[A-Z0-9]+-)?[A-Z0-9]{4}$/.test(normalizedCode) || !user) {
-      setRedemptionError('Enter a valid voucher code such as LDH-1234 or LDH-VRC-1234.');
-      return;
+    setValidatedVoucher(null);
+    if (!/^LDH-[A-F0-9]{8}$/.test(normalizedCode) || !user) {
+      setRedemptionError('Enter a valid voucher code such as LDH-A1B2C3D4.');
+      return false;
     }
 
-    setScannedResult(normalizedCode);
+    setIsValidatingVoucher(true);
     try {
-      const { data: redeemed, error } = await withTimeout(
-        supabase.rpc('redeem_voucher', { p_voucher_code: normalizedCode }),
-        3000
+      const { data, error } = await withTimeout(
+        supabase.rpc('validate_voucher', { p_voucher_code: normalizedCode }),
+        4000
       );
-
       if (error) throw error;
-      if (redeemed !== true) {
+      const result = Array.isArray(data) ? data[0] : null;
+      if (!result || typeof result !== 'object') {
+        throw new Error('The voucher service returned an invalid response.');
+      }
+      if (result.status === 'already_redeemed') {
         setRedemptionError('This voucher has already been redeemed.');
-        return;
+        return false;
       }
-    } catch {
-      const fallbackStatus = redeemVoucherLocally(normalizedCode);
-      if (fallbackStatus !== 'redeemed') {
-        setRedemptionError(
-          fallbackStatus === 'already_redeemed'
-            ? 'This voucher has already been redeemed.'
-            : 'Unable to verify this voucher online. Check that the pass is saved on this device and try again.'
-        );
-        return;
+      if (result.status !== 'valid') {
+        setRedemptionError('Voucher not found for an active offer owned by this merchant.');
+        return false;
       }
-    }
+      if (
+        typeof result.voucher_code !== 'string' ||
+        typeof result.business !== 'string' ||
+        typeof result.deal_title !== 'string' ||
+        typeof result.discount !== 'string'
+      ) {
+        throw new Error('The voucher service returned incomplete offer details.');
+      }
 
-    try {
-      const redeemedCodes = readLocallyRedeemedCodes();
-      if (!redeemedCodes.includes(normalizedCode)) {
-        localStorage.setItem(
-          LOCAL_REDEMPTIONS_STORAGE_KEY,
-          JSON.stringify([...redeemedCodes, normalizedCode])
-        );
-      }
-    } catch {
-      // A successful database redemption remains valid when local storage is unavailable.
-    }
-
-    try {
+      setVoucherCode(normalizedCode);
+      setValidatedVoucher({
+        code: result.voucher_code,
+        business: result.business,
+        dealTitle: result.deal_title,
+        discount: result.discount,
+      });
       const scanner = scannerRef.current;
       scannerRef.current = null;
       if (scanner) {
         try {
           await scanner.clear();
         } catch (clearError) {
-          console.error('Unable to stop the voucher scanner after redemption:', getErrorMessage(clearError));
+          console.error('Unable to stop the voucher scanner after validation:', getErrorMessage(clearError));
         }
       }
-      setVoucherCode('');
+      return true;
+    } catch (error: unknown) {
+      console.error('Unable to validate voucher:', getErrorMessage(error));
+      setRedemptionError(`Unable to verify voucher online: ${getErrorMessage(error)}`);
+      return false;
+    } finally {
+      setIsValidatingVoucher(false);
+    }
+  }, [user]);
+
+  const handleRedeemValidatedVoucher = useCallback(async () => {
+    if (!user || !validatedVoucher || isRedeemingVoucher) return;
+
+    setIsRedeemingVoucher(true);
+    setRedemptionError('');
+    try {
+      const { data: redeemed, error } = await withTimeout(
+        supabase.rpc('redeem_voucher', { p_voucher_code: validatedVoucher.code }),
+        4000
+      );
+      if (error) throw error;
+      if (redeemed !== true) {
+        setRedemptionError('This voucher has already been redeemed.');
+        setValidatedVoucher(null);
+        return;
+      }
       setRedeemSuccess(true);
       setRedemptionCount((count) => count + 1);
     } catch (error: unknown) {
-      setRedemptionError(`Voucher redeemed, but the scanner could not be stopped: ${getErrorMessage(error)}`);
+      console.error('Unable to redeem voucher:', getErrorMessage(error));
+      setRedemptionError(`Unable to redeem voucher: ${getErrorMessage(error)}`);
+    } finally {
+      setIsRedeemingVoucher(false);
     }
-  }, [user]);
+  }, [isRedeemingVoucher, user, validatedVoucher]);
 
   // Camera QR Scanner Lifecycle
   useEffect(() => {
@@ -327,8 +306,8 @@ export default function MerchantPortal() {
         (decodedText) => {
           if (scanInProgressRef.current) return;
           scanInProgressRef.current = true;
-          void handleVoucherCodeRedeem(decodedText).finally(() => {
-            scanInProgressRef.current = false;
+          void handleVoucherCodeRedeem(decodedText).then((isValid) => {
+            if (!isValid) scanInProgressRef.current = false;
           });
         },
         () => {}
@@ -350,7 +329,7 @@ export default function MerchantPortal() {
       (deal) => deal.user_id === userId && isDealActive(deal)
     );
     setMyDeals(localDeals);
-    setRedemptionCount(readLocallyRedeemedCodes().length);
+    setRedemptionCount(0);
     try {
       setLoading(true);
       const [dealResult, redemptionResult] = await withTimeout(
@@ -375,7 +354,8 @@ export default function MerchantPortal() {
       );
       setMyDeals(mergeMerchantDeals(databaseDeals, localDeals));
       if (redemptionResult.error) {
-        setRedemptionCount(readLocallyRedeemedCodes().length);
+        console.error('Unable to load merchant redemption count:', getErrorMessage(redemptionResult.error));
+        setRedemptionCount(0);
       } else {
         setRedemptionCount(redemptionResult.count || 0);
       }
@@ -949,9 +929,10 @@ export default function MerchantPortal() {
             {/* In-Store Scanner Trigger */}
             <button
               onClick={() => {
-                setScannedResult(null);
                 setRedeemSuccess(false);
                 setRedemptionError('');
+                setValidatedVoucher(null);
+                scanInProgressRef.current = false;
                 setScannerSession((session) => session + 1);
                 setIsScannerOpen(true);
               }}
@@ -1021,37 +1002,59 @@ export default function MerchantPortal() {
           </p>
         )}
 
+        <FlashDealBroadcast deals={myDeals} />
+
         {/* KPI Performance Metrics */}
         <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="text-sm font-bold text-white">Quick Voucher Verification</h2>
-            <p className="text-xs text-slate-400 mt-1">Enter a customer&apos;s LDH-XXXX code to apply the discount at the counter.</p>
+            <p className="text-xs text-slate-400 mt-1">Scan or enter a customer&apos;s voucher code to verify the offer before applying its discount.</p>
           </div>
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              handleVoucherCodeRedeem(voucherCode);
+              void handleVoucherCodeRedeem(voucherCode);
             }}
             className="flex flex-col sm:flex-row gap-2"
           >
             <input
               value={voucherCode}
-              onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
-              placeholder="LDH-1234 or LDH-VRC-1234"
-              pattern="LDH-(?:[A-Za-z0-9]+-)?[A-Za-z0-9]{4}"
-              maxLength={20}
+              onChange={(event) => {
+                setVoucherCode(event.target.value.toUpperCase());
+                setValidatedVoucher(null);
+                setRedeemSuccess(false);
+                setRedemptionError('');
+              }}
+              placeholder="LDH-A1B2C3D4"
+              pattern="LDH-[A-Fa-f0-9]{8}"
+              maxLength={12}
               aria-label="Voucher code"
               className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-zinc-100 font-mono focus:outline-none focus:border-emerald-500"
             />
-            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold">
-              Verify Voucher
+            <button type="submit" disabled={isValidatingVoucher} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl text-xs font-bold">
+              {isValidatingVoucher ? 'Checking...' : 'Verify Voucher'}
             </button>
           </form>
           {redemptionError && <p role="alert" className="text-xs text-rose-400">{redemptionError}</p>}
-          {redeemSuccess && (
-            <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-3 text-sm font-bold text-emerald-300">
-              ✓ Voucher Valid: Discount Applied
-            </p>
+          {validatedVoucher && (
+            <div className={`rounded-xl border p-4 text-left ${redeemSuccess ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-blue-500/30 bg-blue-500/10'}`}>
+              <p role="status" className={`text-xs font-bold uppercase ${redeemSuccess ? 'text-emerald-300' : 'text-blue-200'}`}>
+                {redeemSuccess ? '✓ Voucher redeemed' : '✓ Voucher valid'}
+              </p>
+              <p className="mt-2 text-sm font-bold text-white">{validatedVoucher.business}</p>
+              <p className="text-xs text-slate-300">{validatedVoucher.dealTitle}</p>
+              <p className="mt-2 text-sm font-black text-emerald-300">{validatedVoucher.discount}</p>
+              {!redeemSuccess && (
+                <button
+                  type="button"
+                  disabled={isRedeemingVoucher}
+                  onClick={() => void handleRedeemValidatedVoucher()}
+                  className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                >
+                  {isRedeemingVoucher ? 'Redeeming...' : 'Mark as Redeemed'}
+                </button>
+              )}
+            </div>
           )}
         </section>
 
@@ -1437,10 +1440,25 @@ export default function MerchantPortal() {
               </p>
             )}
 
-            {redeemSuccess && (
+            {validatedVoucher && (
               <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl space-y-1">
-                <span className="text-xs font-bold uppercase text-emerald-400">✓ VOUCHER VERIFIED &amp; REDEEMED</span>
-                <p className="text-[11px] text-slate-300 font-mono">Code: {scannedResult}</p>
+                <span className="text-xs font-bold uppercase text-emerald-400">
+                  {redeemSuccess ? '✓ VOUCHER REDEEMED' : '✓ VOUCHER VALID'}
+                </span>
+                <p className="mt-2 text-sm font-bold text-white">{validatedVoucher.business}</p>
+                <p className="text-xs text-slate-300">{validatedVoucher.dealTitle}</p>
+                <p className="text-sm font-black text-emerald-300">{validatedVoucher.discount}</p>
+                <p className="text-[11px] text-slate-300 font-mono">Code: {validatedVoucher.code}</p>
+                {!redeemSuccess && (
+                  <button
+                    type="button"
+                    disabled={isRedeemingVoucher}
+                    onClick={() => void handleRedeemValidatedVoucher()}
+                    className="mt-3 w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                  >
+                    {isRedeemingVoucher ? 'Redeeming...' : 'Mark as Redeemed'}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1449,9 +1467,10 @@ export default function MerchantPortal() {
                 type="button"
                 onClick={() => {
                   scanInProgressRef.current = false;
-                  setScannedResult(null);
+                  setValidatedVoucher(null);
                   setRedeemSuccess(false);
                   setRedemptionError('');
+                  setVoucherCode('');
                   setScannerSession((session) => session + 1);
                 }}
                 className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-500"

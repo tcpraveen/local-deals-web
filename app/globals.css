@@ -10,6 +10,33 @@ body {
   min-height: 100vh;
 }
 
+.deal-map-marker-shell {
+  border: 0;
+  background: transparent;
+}
+
+.deal-map-marker {
+  display: block;
+  overflow: hidden;
+  max-width: 92px;
+  border: 2px solid #fff;
+  border-radius: 9999px;
+  background: #059669;
+  padding: 5px 8px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+}
+
+.leaflet-container {
+  z-index: 0;
+}
+
 @keyframes splash-enter {
   from {
     opacity: 0;
