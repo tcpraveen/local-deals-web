@@ -20,6 +20,27 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Map and push notifications
+
+The storefront includes a Leaflet/OpenStreetMap map view alongside the deal list. Map markers require deal latitude and longitude coordinates; the map centers on browser GPS when available and otherwise uses the Thoothukudi fallback.
+
+Push notifications require HTTPS (or localhost), a Supabase service-role key available only to the server, and VAPID keys. Generate a key pair with:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Set these variables in the local server environment (for example, `.env.local`) and in the deployment environment:
+
+```text
+NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY=<VAPID public key>
+WEB_PUSH_PRIVATE_KEY=<VAPID private key>
+WEB_PUSH_SUBJECT=mailto:your-support-address@example.com
+SUPABASE_SERVICE_ROLE_KEY=<Supabase service-role key>
+```
+
+Keep `WEB_PUSH_PRIVATE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` secret and never prefix them with `NEXT_PUBLIC_`. Apply `supabase/migrations/20261028000000_push_subscriptions.sql` to create the private subscription store. The merchant flash-deal broadcaster only sends offers belonging to the signed-in merchant that are verified and active.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

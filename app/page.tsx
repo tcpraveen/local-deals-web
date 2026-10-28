@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import {
   Deal,
@@ -17,10 +18,16 @@ import SplashScreen from "./SplashScreen";
 import AIAssistant from "./AIAssistant";
 import DealTimer from "./DealTimer";
 import { Share2 } from "lucide-react";
+import PushNotificationManager from "./components/PushNotificationManager";
 
-function createVoucherCode(): string {
-  return `LDH-${Math.floor(1000 + Math.random() * 9000)}`;
-}
+const DealMap = dynamic(() => import("./components/DealMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[460px] items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-sm text-slate-400 sm:h-[560px]">
+      Loading deal map...
+    </div>
+  ),
+});
 
 function getDirectionsUrl(deal: Deal): string {
   if (typeof deal.lat === 'number' && typeof deal.lng === 'number') {
@@ -199,6 +206,7 @@ export default function StorefrontPage() {
     useState<(typeof DEAL_CATEGORIES)[number]>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [maxRadius, setMaxRadius] = useState<number | null>(null);
+  const [discoveryView, setDiscoveryView] = useState<'list' | 'map'>('list');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [claimedDeals, setClaimedDeals] = useState<Record<string, string>>({});
@@ -354,9 +362,41 @@ export default function StorefrontPage() {
     }
   };
 
-  const handleClaim = (deal: Deal) => {
+  const handleClaim = async (deal: Deal) => {
     const dealId = String(deal.id);
-    const uniqueCode = claimedDeals[dealId] || createVoucherCode();
+    const existingVoucher = claimedVouchers.find((voucher) => voucher.dealId === dealId);
+    if (existingVoucher && /^LDH-[A-F0-9]{8}$/.test(existingVoucher.code)) {
+      setActiveVoucher({ deal, code: existingVoucher.code });
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      setStorageError('Connect to the voucher service before claiming a voucher.');
+      return;
+    }
+
+    setStorageError(null);
+    let uniqueCode: string;
+    try {
+      const { data, error } = await withTimeout(
+        supabase.rpc('claim_voucher', { p_deal_id: dealId }),
+        4000
+      );
+      if (error) throw error;
+      if (typeof data !== 'string' || !/^LDH-[A-F0-9]{8}$/.test(data)) {
+        throw new Error('The voucher service returned an invalid code.');
+      }
+      uniqueCode = data;
+    } catch (error) {
+      console.error('Unable to issue voucher:', error);
+      setStorageError(
+        error instanceof Error
+          ? `Unable to issue voucher: ${error.message}`
+          : 'Unable to issue voucher. Please try again.'
+      );
+      return;
+    }
+
     const voucher: ClaimedVoucher = {
       dealId,
       code: uniqueCode,
@@ -508,6 +548,7 @@ export default function StorefrontPage() {
   }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, selectedCategory, coords, maxRadius, locationStatus]);
 
   useEffect(() => {
+    if (discoveryView !== 'list') return;
     const list = dealListRef.current;
     if (!list) return;
 
@@ -536,7 +577,7 @@ export default function StorefrontPage() {
 
     list.querySelectorAll<HTMLElement>('[data-deal-id]').forEach((card) => observer.observe(card));
     return () => observer.disconnect();
-  }, [filteredDeals, recordDealMetric]);
+  }, [discoveryView, filteredDeals, recordDealMetric]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
@@ -673,6 +714,8 @@ export default function StorefrontPage() {
         </section>
       )}
 
+      <PushNotificationManager />
+
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         {storageError && (
           <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -754,7 +797,41 @@ export default function StorefrontPage() {
           ))}
         </nav>
 
+        <div className="flex justify-end" role="group" aria-label="Deal display mode">
+          <div className="inline-flex rounded-xl border border-slate-800 bg-[#0d162a] p-1">
+            {(['list', 'map'] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                aria-pressed={discoveryView === view}
+                onClick={() => setDiscoveryView(view)}
+                className={`rounded-lg px-4 py-2 text-xs font-bold capitalize transition ${
+                  discoveryView === view
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {view === 'list' ? 'List View' : 'Map View'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Deals Listing */}
+        {discoveryView === 'map' ? (
+          dealsLoading ? (
+            <p className="py-16 text-center text-sm text-slate-400">Loading verified deals...</p>
+          ) : filteredDeals.length === 0 ? (
+            <p className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-12 text-center text-sm text-slate-400">
+              No verified deals currently active in this area. Check back soon!
+            </p>
+          ) : (
+            <DealMap
+              deals={filteredDeals}
+              userCoordinates={locationStatus === 'location_unavailable' ? null : coords}
+            />
+          )
+        ) : (
         <section ref={dealListRef} className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {dealsLoading ? (
             <p className="col-span-full py-16 text-center text-sm text-slate-400">Loading verified deals...</p>
@@ -938,7 +1015,7 @@ export default function StorefrontPage() {
                       <Share2 size={15} aria-hidden="true" /> {translate('Share')}
                     </button>
                     <button
-                      onClick={() => handleClaim(deal)}
+                      onClick={() => void handleClaim(deal)}
                       className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600/20 px-2 py-2.5 text-xs font-bold text-indigo-200 transition hover:bg-indigo-600/30"
                     >
                       {translate('Get QR Pass')}
@@ -961,6 +1038,7 @@ export default function StorefrontPage() {
             );
           })}
         </section>
+        )}
       </div>
       {activeVoucher && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
