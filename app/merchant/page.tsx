@@ -83,6 +83,7 @@ function mergeMerchantDeals(databaseDeals: Deal[], localDeals: Deal[]): Deal[] {
 
 function parseCoordinates(value: string): { lat: number; lng: number } | null {
   const patterns = [
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
     /@(-?\d+\.\d+),(-?\d+\.\d+)/,
     /[?&](?:q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/,
     /^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/,
@@ -138,6 +139,8 @@ export default function MerchantPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [locationCoordinatesLocked, setLocationCoordinatesLocked] = useState(false);
+  const [locationMode, setLocationMode] = useState<'link' | 'fine_tune' | 'device_gps'>('link');
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [locationError, setLocationError] = useState('');
   const [qrDeal, setQrDeal] = useState<Deal | null>(null);
   const [posterDeal, setPosterDeal] = useState<Deal | null>(null);
@@ -173,6 +176,7 @@ export default function MerchantPortal() {
     is_featured: false,
     store_address: '',
     google_maps_url: '',
+    landmark: '',
   });
 
   useEffect(() => {
@@ -494,6 +498,75 @@ export default function MerchantPortal() {
     }));
   };
 
+  const handleMapsLocationBlur = async () => {
+    const mapsUrl = formData.google_maps_url?.trim();
+    if (!mapsUrl || parseCoordinates(mapsUrl)) return;
+    setLocationError('');
+    try {
+      const response = await fetch('/api/expand-maps-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: mapsUrl }),
+      });
+      const result: unknown = await response.json();
+      if (
+        !response.ok ||
+        typeof result !== 'object' ||
+        result === null ||
+        !('lat' in result) ||
+        typeof result.lat !== 'number' ||
+        !('lng' in result) ||
+        typeof result.lng !== 'number'
+      ) {
+        const message =
+          typeof result === 'object' &&
+          result !== null &&
+          'error' in result &&
+          typeof result.error === 'string'
+            ? result.error
+            : 'Could not find shop coordinates in that Maps link.';
+        setLocationError(message);
+        return;
+      }
+      const latitude = result.lat;
+      const longitude = result.lng;
+      const expandedUrl =
+        'expandedUrl' in result && typeof result.expandedUrl === 'string'
+          ? result.expandedUrl
+          : mapsUrl;
+      setFormData((previous) => ({
+        ...previous,
+        lat: latitude,
+        lng: longitude,
+        google_maps_url: expandedUrl,
+      }));
+      setLocationCoordinatesLocked(true);
+      setLocationError('');
+    } catch (error: unknown) {
+      console.error('Unable to expand Google Maps URL:', getErrorMessage(error));
+      setLocationError('Could not expand this Maps link. You can fine-tune the pin manually.');
+    }
+  };
+
+  const adjustShopPin = (axis: 'lat' | 'lng', amount: number) => {
+    setFormData((previous) => {
+      const value = previous[axis];
+      if (typeof value !== 'number') return previous;
+      const adjusted = Number((value + amount).toFixed(6));
+      const lat = axis === 'lat' ? adjusted : previous.lat;
+      const lng = axis === 'lng' ? adjusted : previous.lng;
+      return {
+        ...previous,
+        [axis]: adjusted,
+        google_maps_url:
+          typeof lat === 'number' && typeof lng === 'number'
+            ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+            : previous.google_maps_url,
+      };
+    });
+    setLocationCoordinatesLocked(true);
+  };
+
   const handleDetectShopLocation = () => {
     if (!navigator.geolocation) {
       setLocationError('Location detection is not supported by this browser.');
@@ -501,6 +574,7 @@ export default function MerchantPortal() {
     }
 
     setIsDetectingLocation(true);
+    setGpsAccuracy(null);
     setLocationError('');
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
@@ -510,6 +584,7 @@ export default function MerchantPortal() {
           lng: coords.longitude,
           google_maps_url: `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`,
         }));
+        setGpsAccuracy(coords.accuracy);
         setLocationCoordinatesLocked(true);
         setIsDetectingLocation(false);
       },
@@ -558,6 +633,7 @@ export default function MerchantPortal() {
       is_featured: Boolean(formData.is_featured),
       store_address: formData.store_address || '',
       google_maps_url: formData.google_maps_url || '',
+      landmark: formData.landmark || '',
       lat: formData.lat,
       lng: formData.lng,
       image: formData.image || null,
@@ -669,6 +745,8 @@ export default function MerchantPortal() {
     setLocationCoordinatesLocked(
       typeof deal.lat === 'number' && typeof deal.lng === 'number'
     );
+    setLocationMode(deal.google_maps_url ? 'link' : 'fine_tune');
+    setGpsAccuracy(null);
     setLocationError('');
     setIsModalOpen(true);
   };
@@ -875,6 +953,8 @@ export default function MerchantPortal() {
               onClick={() => {
                 setEditingDealId(null);
                 setLocationCoordinatesLocked(false);
+                setLocationMode('link');
+                setGpsAccuracy(null);
                 setLocationError('');
                 setFormData({
                   title: '',
@@ -894,6 +974,7 @@ export default function MerchantPortal() {
                   is_featured: false,
                   store_address: '',
                   google_maps_url: '',
+                  landmark: '',
                 });
                 setIsModalOpen(true);
               }}
@@ -1567,33 +1648,179 @@ export default function MerchantPortal() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Store Google Maps Location Link *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Paste Google Maps link (e.g., https://maps.app.goo.gl/... or share link)"
-                    value={formData.google_maps_url || ''}
-                    onChange={(event) => handleMapsLocationChange(event.target.value)}
-                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
-                  />
+                  <label className="block text-slate-400 mb-2">Shop Location Selector *</label>
+                  <div role="group" aria-label="Choose how to set shop location" className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-slate-800 bg-[#080d16] p-1">
+                    {([
+                      ['link', 'Paste Maps Link'],
+                      ['fine_tune', 'Fine-tune Pin'],
+                      ['device_gps', 'Device GPS'],
+                    ] as const).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={locationMode === mode}
+                        onClick={() => setLocationMode(mode)}
+                        className={`rounded-lg px-2 py-2 text-[10px] font-bold transition sm:text-xs ${
+                          locationMode === mode
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {locationMode === 'link' && (
+                    <div>
+                      <label htmlFor="shop-maps-link" className="mb-1 block text-xs text-slate-400">
+                        Paste Google Maps link (recommended)
+                      </label>
+                      <input
+                        id="shop-maps-link"
+                        type="url"
+                        placeholder="https://maps.app.goo.gl/... or Google Maps share link"
+                        value={formData.google_maps_url || ''}
+                        onChange={(event) => handleMapsLocationChange(event.target.value)}
+                        onBlur={() => void handleMapsLocationBlur()}
+                        className="w-full rounded-lg border border-slate-800 bg-[#080d16] p-2.5 text-white focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {locationMode === 'fine_tune' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['lat', 'lng'] as const).map((axis) => (
+                          <label key={axis} className="text-[10px] font-semibold uppercase text-slate-500">
+                            {axis === 'lat' ? 'Latitude' : 'Longitude'}
+                            <div className="mt-1 flex items-center gap-1">
+                              <button
+                                type="button"
+                                aria-label={`Decrease ${axis}`}
+                                disabled={typeof formData[axis] !== 'number'}
+                                onClick={() => adjustShopPin(axis, -0.00001)}
+                                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                step="0.000001"
+                                placeholder={axis === 'lat' ? '8.8...' : '78.1...'}
+                                value={formData[axis] ?? ''}
+                                onChange={(event) => {
+                                  const rawValue = event.target.value;
+                                  const value = rawValue.trim() === '' ? undefined : Number(rawValue);
+                                  if (value === undefined || Number.isFinite(value)) {
+                                    setFormData((previous) => {
+                                      const lat = axis === 'lat' ? value : previous.lat;
+                                      const lng = axis === 'lng' ? value : previous.lng;
+                                      return {
+                                        ...previous,
+                                        [axis]: value,
+                                        google_maps_url:
+                                          typeof lat === 'number' && typeof lng === 'number'
+                                            ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+                                            : '',
+                                      };
+                                    });
+                                    setLocationCoordinatesLocked(value !== undefined);
+                                  }
+                                }}
+                                className="min-w-0 w-full rounded-lg border border-slate-800 bg-[#080d16] px-2 py-2 text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Increase ${axis}`}
+                                disabled={typeof formData[axis] !== 'number'}
+                                onClick={() => adjustShopPin(axis, 0.00001)}
+                                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      {typeof formData.lat === 'number' && typeof formData.lng === 'number' ? (
+                        <>
+                          <iframe
+                            title="Fine-tune shop location map"
+                            src={`https://www.google.com/maps?q=${formData.lat},${formData.lng}&z=19&output=embed`}
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                            className="h-52 w-full rounded-xl border border-slate-700 bg-slate-900"
+                          />
+                          <p className="text-[10px] text-slate-400">
+                            Use ± buttons for 1.1 m adjustments; confirm the marker is on your shop.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                          Enter both coordinates or paste a Maps link to preview the pin on the map.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {locationMode === 'device_gps' && (
+                    <div className="space-y-2">
+                      <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200">
+                        ⚠️ Only click this if you are currently standing inside your shop.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleDetectShopLocation}
+                        disabled={isDetectingLocation}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-600/20 px-3 py-2.5 text-xs font-bold text-blue-300 transition hover:bg-blue-600/30 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {isDetectingLocation ? '📍 Detecting shop location...' : '📍 Use Current Device GPS'}
+                      </button>
+                      {gpsAccuracy !== null && (
+                        <p className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
+                          GPS accuracy radius: ±{Math.round(gpsAccuracy)} m
+                        </p>
+                      )}
+                      {typeof formData.lat === 'number' && typeof formData.lng === 'number' && (
+                        <iframe
+                          title="Current shop GPS location preview"
+                          src={`https://www.google.com/maps?q=${formData.lat},${formData.lng}&z=19&output=embed`}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          className="h-52 w-full rounded-xl border border-slate-700 bg-slate-900"
+                        />
+                      )}
+                    </div>
+                  )}
+
                   {locationCoordinatesLocked &&
                     typeof formData.lat === 'number' &&
                     typeof formData.lng === 'number' && (
-                      <p className="mt-1.5 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
-                        ✓ GPS Coordinates locked: {formData.lat.toFixed(4)}, {formData.lng.toFixed(4)}
+                      <p className="mt-2 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                        ✓ Shop pin: {formData.lat.toFixed(6)}, {formData.lng.toFixed(6)}
                       </p>
                     )}
                   {locationError && (
                     <p role="alert" className="mt-1.5 text-xs text-rose-400">{locationError}</p>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleDetectShopLocation}
-                    disabled={isDetectingLocation}
-                    className="mt-2 flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-600/20 px-3 py-1.5 text-xs font-bold text-blue-300 transition hover:bg-blue-600/30 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isDetectingLocation ? '📍 Detecting shop location...' : '📍 Detect My Shop Location'}
-                  </button>
+                </div>
+
+                <div>
+                  <label htmlFor="store-landmark" className="mb-1 block text-slate-400">
+                    Nearby Landmark (optional)
+                  </label>
+                  <input
+                    id="store-landmark"
+                    type="text"
+                    maxLength={160}
+                    placeholder="e.g. Opposite Bus Stand, 1st Floor"
+                    value={formData.landmark || ''}
+                    onChange={(event) =>
+                      setFormData((previous) => ({ ...previous, landmark: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-800 bg-[#080d16] p-2.5 text-white focus:border-blue-500 focus:outline-none"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
