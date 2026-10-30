@@ -329,41 +329,42 @@ export default function MerchantPortal() {
       (deal) => deal.user_id === userId && isDealActive(deal)
     );
     setMyDeals(localDeals);
-    setRedemptionCount(0);
+    setLoading(true);
     try {
-      setLoading(true);
-      const [dealResult, redemptionResult] = await withTimeout(
-        Promise.all([
-          supabase
-            .from('deals')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('redemptions')
-            .select('id', { count: 'exact', head: true })
-            .eq('merchant_id', userId)
-            .eq('redeemed', true),
-        ]),
+      const { data, error } = await withTimeout(
+        supabase
+          .from('deals')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
         3000
       );
 
-      if (dealResult.error) throw dealResult.error;
-      const databaseDeals = (dealResult.data || []).filter((deal: Deal) =>
+      if (error) throw error;
+      const databaseDeals = (data || []).filter((deal: Deal) =>
         isDealActive(deal) && Boolean(deal.business?.trim()) && Boolean(deal.title?.trim())
       );
       setMyDeals(mergeMerchantDeals(databaseDeals, localDeals));
-      if (redemptionResult.error) {
-        console.error('Unable to load merchant redemption count:', getErrorMessage(redemptionResult.error));
-        setRedemptionCount(0);
-      } else {
-        setRedemptionCount(redemptionResult.count || 0);
-      }
     } catch (err: unknown) {
       console.error('Error fetching merchant deals:', getErrorMessage(err));
       setMyDeals(localDeals);
     } finally {
       setLoading(false);
+    }
+
+    try {
+      const { data, error } = await withTimeout(
+        supabase.rpc('get_merchant_redemption_count'),
+        3000
+      );
+      if (error) throw error;
+      if (typeof data !== 'number' || !Number.isSafeInteger(data) || data < 0) {
+        throw new Error('The redemption count response was invalid.');
+      }
+      setRedemptionCount(data);
+    } catch (err: unknown) {
+      console.warn('Unable to load merchant redemption count:', getErrorMessage(err));
+      setRedemptionCount(0);
     }
   }
 

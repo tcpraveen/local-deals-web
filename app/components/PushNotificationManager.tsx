@@ -5,9 +5,24 @@ import { Bell, X } from 'lucide-react';
 
 function decodeVapidKey(value: string): BufferSource {
   const cleanValue = value.trim();
-  const padding = '='.repeat((4 - (cleanValue.length % 4)) % 4);
-  const base64 = (cleanValue + padding).replace(/-/g, '+').replace(/_/g, '/');
+  if (!cleanValue || !/^[A-Za-z0-9_-]+={0,2}$/.test(cleanValue)) {
+    throw new Error('Invalid VAPID public key encoding.');
+  }
+  const unpaddedValue = cleanValue.replace(/=+$/, '');
+  const paddingLength = (4 - (unpaddedValue.length % 4)) % 4;
+  if (
+    unpaddedValue.length % 4 === 1 ||
+    (cleanValue.endsWith('=') &&
+      (cleanValue.length % 4 !== 0 || cleanValue.length - unpaddedValue.length !== paddingLength))
+  ) {
+    throw new Error('Invalid VAPID public key encoding.');
+  }
+  const padding = '='.repeat(paddingLength);
+  const base64 = (unpaddedValue + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = window.atob(base64);
+  if (raw.length !== 65 || raw.charCodeAt(0) !== 4) {
+    throw new Error('Invalid VAPID public key.');
+  }
   const bytes = new Uint8Array(raw.length);
   for (let index = 0; index < raw.length; index += 1) {
     bytes[index] = raw.charCodeAt(index);
@@ -125,9 +140,7 @@ export default function PushNotificationManager() {
       setSubscribed(true);
     } catch (subscriptionError: unknown) {
       console.error('Unable to enable push notifications:', subscriptionError);
-      setError(subscriptionError instanceof Error
-        ? subscriptionError.message
-        : 'Unable to enable deal alerts. Please try again.');
+      setError('Notifications could not be enabled on this device.');
     } finally {
       setBusy(false);
     }
