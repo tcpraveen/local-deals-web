@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 
-function decodeVapidKey(value: string): Uint8Array {
+function decodeVapidKey(value: string): BufferSource {
   const cleanValue = value.trim();
   const padding = '='.repeat((4 - (cleanValue.length % 4)) % 4);
   const base64 = (cleanValue + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -12,7 +12,7 @@ function decodeVapidKey(value: string): Uint8Array {
   for (let index = 0; index < raw.length; index += 1) {
     bytes[index] = raw.charCodeAt(index);
   }
-  return bytes;
+  return bytes as unknown as BufferSource;
 }
 async function getDeviceId(): Promise<string> {
   const key = 'ldh_push_device_id';
