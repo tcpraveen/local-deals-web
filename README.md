@@ -33,13 +33,16 @@ npx web-push generate-vapid-keys
 Set these variables in the local server environment (for example, `.env.local`) and in the deployment environment:
 
 ```text
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=<VAPID public key>
 NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY=<VAPID public key>
+VAPID_PRIVATE_KEY=<VAPID private key>
 WEB_PUSH_PRIVATE_KEY=<VAPID private key>
+VAPID_SUBJECT=mailto:your-support-address@example.com
 WEB_PUSH_SUBJECT=mailto:your-support-address@example.com
 SUPABASE_SERVICE_ROLE_KEY=<Supabase service-role key>
 ```
 
-Keep `WEB_PUSH_PRIVATE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` secret and never prefix them with `NEXT_PUBLIC_`. Apply `supabase/migrations/20261028000000_push_subscriptions.sql` to create the private subscription store. The merchant flash-deal broadcaster only sends offers belonging to the signed-in merchant that are verified and active.
+The `NEXT_PUBLIC_VAPID_PUBLIC_KEY` value may be omitted to use the built-in public key, but configure its matching private key on the server. Keep `VAPID_PRIVATE_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` secret and never prefix them with `NEXT_PUBLIC_`. Apply `supabase/migrations/20261028000000_push_subscriptions.sql` to create the private subscription store. The merchant flash-deal broadcaster only sends offers belonging to the signed-in merchant that are verified and active.
 
 ## Learn More
 

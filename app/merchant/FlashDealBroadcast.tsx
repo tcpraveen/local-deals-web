@@ -25,13 +25,17 @@ export default function FlashDealBroadcast({ deals }: FlashDealBroadcastProps) {
   const [error, setError] = useState('');
   const [result, setResult] = useState<BroadcastResult | null>(null);
 
-  if (!eligibleDeals.length) return null;
-
   const selectedDeal = eligibleDeals.find((deal) => String(deal.id) === selectedDealId)
-    ?? eligibleDeals[0];
+    ?? eligibleDeals[0]
+    ?? null;
 
   const sendBroadcast = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!selectedDeal) {
+      setError('Publish or sync a verified active promotion before sending a flash deal.');
+      return;
+    }
+
     setSending(true);
     setError('');
     setResult(null);
@@ -103,15 +107,23 @@ export default function FlashDealBroadcast({ deals }: FlashDealBroadcastProps) {
         <label className="block text-xs font-semibold text-slate-300">
           Verified active offer
           <select
-            value={selectedDeal.id}
+            value={selectedDeal?.id ?? ''}
             onChange={(event) => setSelectedDealId(event.target.value)}
+            disabled={!eligibleDeals.length}
             className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
           >
-            {eligibleDeals.map((deal) => (
+            {eligibleDeals.length ? eligibleDeals.map((deal) => (
               <option key={deal.id} value={deal.id}>{deal.business} — {deal.title}</option>
-            ))}
+            )) : (
+              <option value="">No verified active promotion available</option>
+            )}
           </select>
         </label>
+        {!selectedDeal && (
+          <p className="text-xs text-amber-200">
+            You can compose your message now. Publish or sync a verified active promotion to send it.
+          </p>
+        )}
         <label className="block text-xs font-semibold text-slate-300">
           Alert message
           <textarea
@@ -137,7 +149,7 @@ export default function FlashDealBroadcast({ deals }: FlashDealBroadcastProps) {
         )}
         <button
           type="submit"
-          disabled={sending || !message.trim()}
+          disabled={sending || !message.trim() || !selectedDeal}
           className="rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sending ? 'Sending alerts...' : 'Send Flash Deal'}

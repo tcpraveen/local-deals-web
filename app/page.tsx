@@ -615,11 +615,11 @@ export default function StorefrontPage() {
                 Merchant Portal
               </Link>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
             <div
               role="group"
               aria-label="Select language"
-              className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-[11px] font-bold"
+              className="inline-flex shrink-0 items-center rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-xs font-bold"
             >
               <button
                 type="button"
@@ -627,7 +627,7 @@ export default function StorefrontPage() {
                   if (language !== 'en') toggleLanguage();
                 }}
                 aria-pressed={language === 'en'}
-                className={`rounded-md px-2 py-1 transition ${
+                className={`rounded-md px-2.5 py-1 transition ${
                   language === 'en' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -640,7 +640,7 @@ export default function StorefrontPage() {
                   if (language !== 'ta') toggleLanguage();
                 }}
                 aria-pressed={language === 'ta'}
-                className={`rounded-md px-2 py-1 transition ${
+                className={`rounded-md px-2.5 py-1 transition ${
                   language === 'ta' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -650,28 +650,21 @@ export default function StorefrontPage() {
             <button
               type="button"
               onClick={() => setShowSavedOnly((savedOnly) => !savedOnly)}
-              className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+              aria-pressed={showSavedOnly}
+              className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
                 showSavedOnly
                   ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
                   : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
               }`}
             >
-              ♥ {showSavedOnly ? 'Showing Saved' : `Saved (${favorites.length})`}
+              ♥ Saved ({favorites.length})
             </button>
             <button
               type="button"
               onClick={() => setShowClaimedVouchers(true)}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-800"
+              className="whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-slate-800"
             >
               My Vouchers ({claimedVouchers.length})
-            </button>
-            <button
-              type="button"
-              onClick={toggleLanguage}
-              aria-label="Toggle language"
-              className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-[11px] font-bold text-blue-300 transition hover:bg-blue-500/20"
-            >
-              {language === 'en' ? 'தமிழ்' : 'EN'}
             </button>
             </div>
           </div>
@@ -716,7 +709,7 @@ export default function StorefrontPage() {
 
       <PushNotificationManager />
 
-      <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="mx-auto max-w-5xl space-y-4 px-4 py-4 sm:space-y-6 sm:p-6">
         {storageError && (
           <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             {storageError}
@@ -725,7 +718,7 @@ export default function StorefrontPage() {
 
         <nav
           aria-label={language === 'ta' ? 'வகை வாரியாக சலுகைகளை வடிகட்டவும்' : 'Filter deals by category'}
-          className="flex items-center gap-2 overflow-x-auto pb-1"
+          className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain px-1 py-2"
         >
           {DEAL_CATEGORIES.map((category) => (
             <button
@@ -733,7 +726,7 @@ export default function StorefrontPage() {
               type="button"
               aria-pressed={selectedCategory === category}
               onClick={() => setSelectedCategory(category)}
-              className={`whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-bold transition ${
+              className={`shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-bold transition ${
                 selectedCategory === category
                   ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                   : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-white'
@@ -744,7 +737,7 @@ export default function StorefrontPage() {
           ))}
         </nav>
 
-        <section className="flex flex-col gap-3 md:flex-row md:items-center">
+        <section className="flex min-w-0 flex-col gap-2.5 md:flex-row md:items-center">
           <label className="relative min-w-0 flex-1">
             <span className="sr-only">{translate('Search deals, products, or stores...')}</span>
             <span aria-hidden="true" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-500">🔍</span>
@@ -756,8 +749,8 @@ export default function StorefrontPage() {
               className="w-full rounded-2xl border border-slate-800 bg-[#0d162a] py-3 pl-10 pr-4 text-xs text-white placeholder:text-slate-500 outline-none transition focus:border-blue-500"
             />
           </label>
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-2xl border border-slate-800 bg-[#0d162a] p-1.5">
-            <span className="px-2 text-[11px] font-bold text-slate-400">{translate('Radius')}</span>
+          <div className="no-scrollbar flex max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-2xl border border-slate-800 bg-[#0d162a] p-1.5">
+            <span className="shrink-0 px-2 text-[11px] font-bold text-slate-400">{translate('Radius')}</span>
             {[
               { label: 'All', value: null },
               { label: 'Within 2 km', value: 2 },
@@ -768,7 +761,7 @@ export default function StorefrontPage() {
                 type="button"
                 key={option.label}
                 onClick={() => setMaxRadius(option.value)}
-                className={`whitespace-nowrap rounded-xl px-2.5 py-1.5 text-[11px] font-bold transition ${
+                className={`shrink-0 whitespace-nowrap rounded-xl px-2.5 py-1.5 text-[11px] font-bold transition ${
                   maxRadius === option.value
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-white'
@@ -781,12 +774,12 @@ export default function StorefrontPage() {
         </section>
 
         {/* Location Filtering Tabs */}
-        <nav aria-label="Filter stores by area" className="flex items-center gap-2 overflow-x-auto pb-1">
+        <nav aria-label="Filter stores by area" className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain px-1 py-2">
           {LOCATIONS.map((loc) => (
             <button
               key={loc}
               onClick={() => setSelectedArea(loc)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
                 selectedArea === loc
                   ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
                   : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800"

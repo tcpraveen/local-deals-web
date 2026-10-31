@@ -151,19 +151,19 @@ export default function PushNotificationManager() {
   return (
     <section
       aria-label="Deal notifications"
-      className="mx-auto mt-4 flex max-w-5xl flex-col gap-3 rounded-2xl border border-blue-500/30 bg-blue-950/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+      className="mx-auto mt-3 flex max-w-5xl flex-col gap-3 rounded-2xl border border-blue-500/30 bg-blue-950/40 p-3.5 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:p-4"
     >
       <div className="flex items-start gap-3">
-        <Bell className="mt-0.5 h-5 w-5 shrink-0 text-blue-300" aria-hidden="true" />
+        <Bell className="mt-0.5 h-4 w-4 shrink-0 text-blue-300 sm:h-5 sm:w-5" aria-hidden="true" />
         <div>
-          <h2 className="text-sm font-bold text-white">
+          <h2 className="text-[13px] font-bold leading-5 text-white sm:text-sm">
             {notificationsBlocked
               ? 'Notifications are blocked'
               : subscribed
                 ? 'Deal alerts are enabled'
                 : 'Get local flash-deal alerts'}
           </h2>
-          <p className="mt-1 text-xs text-slate-300">
+          <p className="mt-0.5 text-[11px] leading-4 text-slate-300 sm:mt-1 sm:text-xs">
             {notificationsBlocked
               ? 'Allow notifications in your browser settings to receive local offers.'
               : 'Be notified when nearby merchants share a limited-time offer.'}
@@ -171,12 +171,12 @@ export default function PushNotificationManager() {
           {error && <p role="alert" className="mt-2 text-xs text-rose-300">{error}</p>}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 pl-8 sm:pl-0">
+      <div className="flex w-full shrink-0 items-center gap-2 pl-7 sm:w-auto sm:pl-0">
         <button
           type="button"
           onClick={() => void enableNotifications()}
           disabled={busy || notificationsBlocked}
-          className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-500 disabled:opacity-60"
+          className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-500 disabled:opacity-60 sm:flex-none sm:px-4"
         >
           {busy ? 'Enabling...' : notificationsBlocked ? 'Blocked in browser settings' : subscribed ? 'Sync this device' : 'Enable alerts'}
         </button>
