@@ -8,7 +8,7 @@ const VAPID_PUBLIC_KEY =
   process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY ||
   'BMmrbL6sJbly68Xt3Dm2xw2ylc1fwuH5nG3yarFMIrYUtlDr6D68pHGVy8CD7hkmDoNHtoG0jjeVWnsahUas6ck';
 
-function urlBase64ToUint8Array(base64String: string): BufferSource {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const cleanValue = base64String.trim();
   if (!cleanValue || !/^[A-Za-z0-9_-]+={0,2}$/.test(cleanValue)) {
     throw new Error('Invalid VAPID public key encoding.');
@@ -32,8 +32,24 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
   for (let index = 0; index < rawData.length; index += 1) {
     outputArray[index] = rawData.charCodeAt(index);
   }
-  return outputArray as unknown as BufferSource;
+  return outputArray;
 }
+
+async function subscribeUser(
+  registration: ServiceWorkerRegistration
+): Promise<PushSubscription | null> {
+  if (!VAPID_PUBLIC_KEY) {
+    console.warn('VAPID public key is missing.');
+    return null;
+  }
+
+  const convertedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: convertedKey,
+  });
+}
+
 async function getDeviceId(): Promise<string> {
   const key = 'ldh_push_device_id';
   const existing = localStorage.getItem(key);
@@ -134,10 +150,11 @@ export default function PushNotificationManager() {
       }
 
       const subscription = await registration.pushManager.getSubscription() ||
-        await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
+        await subscribeUser(registration);
+      if (!subscription) {
+        setError('Notifications could not be enabled on this device.');
+        return;
+      }
       await saveSubscription(subscription);
       setSubscribed(true);
     } catch (subscriptionError: unknown) {
