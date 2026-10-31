@@ -31,8 +31,15 @@ export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const vapidPublicKey = process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY;
-  const vapidPrivateKey = process.env.WEB_PUSH_PRIVATE_KEY;
+  const vapidPublicKey =
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+    process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY ||
+    'BMmrbL6sJbly68Xt3Dm2xw2ylc1fwuH5nG3yarFMIrYUtlDr6D68pHGVy8CD7hkmDoNHtoG0jjeVWnsahUas6ck';
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY;
+  const vapidSubject =
+    process.env.VAPID_SUBJECT ||
+    process.env.WEB_PUSH_SUBJECT ||
+    'mailto:tcpraveen123@gmail.com';
   if (
     !supabaseUrl ||
     !supabaseAnonKey ||
@@ -118,7 +125,7 @@ export async function POST(request: Request) {
 
   try {
     webpush.setVapidDetails(
-      process.env.WEB_PUSH_SUBJECT || 'mailto:support@localdealshub.com',
+      vapidSubject,
       vapidPublicKey,
       vapidPrivateKey
     );

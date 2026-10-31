@@ -3,8 +3,13 @@
 import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 
-function decodeVapidKey(value: string): BufferSource {
-  const cleanValue = value.trim();
+const VAPID_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+  process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY ||
+  'BMmrbL6sJbly68Xt3Dm2xw2ylc1fwuH5nG3yarFMIrYUtlDr6D68pHGVy8CD7hkmDoNHtoG0jjeVWnsahUas6ck';
+
+function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const cleanValue = base64String.trim();
   if (!cleanValue || !/^[A-Za-z0-9_-]+={0,2}$/.test(cleanValue)) {
     throw new Error('Invalid VAPID public key encoding.');
   }
@@ -19,15 +24,15 @@ function decodeVapidKey(value: string): BufferSource {
   }
   const padding = '='.repeat(paddingLength);
   const base64 = (unpaddedValue + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = window.atob(base64);
-  if (raw.length !== 65 || raw.charCodeAt(0) !== 4) {
+  const rawData = window.atob(base64);
+  if (rawData.length !== 65 || rawData.charCodeAt(0) !== 4) {
     throw new Error('Invalid VAPID public key.');
   }
-  const bytes = new Uint8Array(raw.length);
-  for (let index = 0; index < raw.length; index += 1) {
-    bytes[index] = raw.charCodeAt(index);
+  const outputArray = new Uint8Array(new ArrayBuffer(rawData.length));
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
   }
-  return bytes as unknown as BufferSource;
+  return outputArray as unknown as BufferSource;
 }
 async function getDeviceId(): Promise<string> {
   const key = 'ldh_push_device_id';
@@ -114,9 +119,6 @@ export default function PushNotificationManager() {
     setBusy(true);
     setError('');
     try {
-      const publicKey = process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY;
-      if (!publicKey) throw new Error('Push notifications are not configured yet.');
-
       const registration = await navigator.serviceWorker.register('/sw.js');
       const nextPermission = permission === 'granted'
         ? permission
@@ -134,7 +136,7 @@ export default function PushNotificationManager() {
       const subscription = await registration.pushManager.getSubscription() ||
         await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: decodeVapidKey(publicKey),
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
         });
       await saveSubscription(subscription);
       setSubscribed(true);
