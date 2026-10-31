@@ -325,10 +325,9 @@ export default function MerchantPortal() {
   }, [isScannerOpen, scannerSession, handleVoucherCodeRedeem]);
 
   async function fetchMyDeals(userId: string) {
-    const localDeals = readStoredCustomDeals().filter(
-      (deal) => deal.user_id === userId && isDealActive(deal)
-    );
+    const localDeals = readStoredCustomDeals().filter(isDealActive);
     setMyDeals(localDeals);
+    setRedemptionCount(0);
     setLoading(true);
     try {
       const { data, error } = await withTimeout(
@@ -350,21 +349,6 @@ export default function MerchantPortal() {
       setMyDeals(localDeals);
     } finally {
       setLoading(false);
-    }
-
-    try {
-      const { data, error } = await withTimeout(
-        supabase.rpc('get_merchant_redemption_count'),
-        3000
-      );
-      if (error) throw error;
-      if (typeof data !== 'number' || !Number.isSafeInteger(data) || data < 0) {
-        throw new Error('The redemption count response was invalid.');
-      }
-      setRedemptionCount(data);
-    } catch (err: unknown) {
-      console.warn('Unable to load merchant redemption count:', getErrorMessage(err));
-      setRedemptionCount(0);
     }
   }
 
