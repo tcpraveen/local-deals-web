@@ -718,7 +718,7 @@ export default function StorefrontPage() {
 
         <nav
           aria-label={language === 'ta' ? 'வகை வாரியாக சலுகைகளை வடிகட்டவும்' : 'Filter deals by category'}
-          className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain px-1 py-2"
+          className="filter-pill-row no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain border-none px-1 py-2 outline-none scroll-smooth"
         >
           {DEAL_CATEGORIES.map((category) => (
             <button
@@ -726,10 +726,10 @@ export default function StorefrontPage() {
               type="button"
               aria-pressed={selectedCategory === category}
               onClick={() => setSelectedCategory(category)}
-              className={`shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-bold transition ${
+              className={`no-underline shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-xs font-bold transition ${
                 selectedCategory === category
-                  ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                  : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-white'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                  : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
             >
               {translate(category)}
@@ -774,15 +774,18 @@ export default function StorefrontPage() {
         </section>
 
         {/* Location Filtering Tabs */}
-        <nav aria-label="Filter stores by area" className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain px-1 py-2">
+        <nav
+          aria-label="Filter stores by area"
+          className="filter-pill-row no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain border-none px-1 py-2 outline-none scroll-smooth"
+        >
           {LOCATIONS.map((loc) => (
             <button
               key={loc}
               onClick={() => setSelectedArea(loc)}
-              className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              className={`no-underline shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
                 selectedArea === loc
                   ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
-                  : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                  : "bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
               }`}
             >
               {loc === "All" ? translate('All Outlets') : loc}

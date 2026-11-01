@@ -10,13 +10,26 @@ body {
   min-height: 100vh;
 }
 
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .filter-pill-row {
+    -webkit-overflow-scrolling: touch;
+    border: 0;
+    outline: 0;
+  }
+
+  .filter-pill-row > button {
+    border-bottom: 0;
+    text-decoration: none;
+  }
 }
 
 .deal-map-marker-shell {
