@@ -97,7 +97,7 @@ export default function DealMap({ deals, userCoordinates }: DealMapProps) {
                   <p className="text-xs text-slate-600">
                     {distance === null ? deal.location || 'Local offer' : `${distance.toFixed(2)} km away`}
                   </p>
-                  <DealTimer expiresAt={deal.expires_at} />
+                  <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} />
                   <Link
                     href={`/store/${slugifyStoreName(deal.business)}`}
                     className="block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-bold text-white"

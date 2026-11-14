@@ -42,7 +42,7 @@ WEB_PUSH_SUBJECT=mailto:your-support-address@example.com
 SUPABASE_SERVICE_ROLE_KEY=<Supabase service-role key>
 ```
 
-The `NEXT_PUBLIC_VAPID_PUBLIC_KEY` value may be omitted to use the built-in public key, but configure its matching private key on the server. Keep `VAPID_PRIVATE_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` secret and never prefix them with `NEXT_PUBLIC_`. Apply `supabase/migrations/20261028000000_push_subscriptions.sql` to create the private subscription store. The merchant flash-deal broadcaster only sends offers belonging to the signed-in merchant that are verified and active.
+The `NEXT_PUBLIC_VAPID_PUBLIC_KEY` value may be omitted to use the built-in public key, but configure its matching private key on the server. Keep `VAPID_PRIVATE_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` secret and never prefix them with `NEXT_PUBLIC_`. Apply `supabase/migrations/20261028000000_push_subscriptions.sql` to create the private subscription store and `supabase/migrations/20261101000000_demo_deals.sql` to enable the merchant's always-active demo mode. The merchant flash-deal broadcaster only sends offers belonging to the signed-in merchant that are verified and active.
 
 ## Learn More
 

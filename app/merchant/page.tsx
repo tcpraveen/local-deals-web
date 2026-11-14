@@ -174,6 +174,7 @@ export default function MerchantPortal() {
     image: '',
     description: '',
     is_featured: false,
+    is_demo: false,
     store_address: '',
     google_maps_url: '',
     landmark: '',
@@ -616,6 +617,7 @@ export default function MerchantPortal() {
       opening_time: formData.opening_time || '09:00',
       closing_time: formData.closing_time || '21:30',
       is_featured: Boolean(formData.is_featured),
+      is_demo: Boolean(formData.is_demo),
       store_address: formData.store_address || '',
       google_maps_url: formData.google_maps_url || '',
       landmark: formData.landmark || '',
@@ -957,6 +959,7 @@ export default function MerchantPortal() {
                   image: '',
                   description: '',
                   is_featured: false,
+                  is_demo: false,
                   store_address: '',
                   google_maps_url: '',
                   landmark: '',
@@ -1830,6 +1833,25 @@ export default function MerchantPortal() {
                     />
                   </div>
                 </div>
+
+                <label className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.is_demo)}
+                    onChange={(event) =>
+                      setFormData({ ...formData, is_demo: event.target.checked })
+                    }
+                    className="mt-0.5 h-4 w-4 accent-amber-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-amber-100">
+                      Always Active (Demo Mode)
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-400">
+                      Keeps this promotion active after its expiry date and rolls the countdown every 24 hours.
+                    </span>
+                  </span>
+                </label>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Physical Store Street Address</label>

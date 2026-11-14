@@ -10,6 +10,7 @@ import {
   LOCATIONS,
   normalizeDeal,
   slugifyStoreName,
+  VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
 import { calculateDistance, getUserLocation } from "@/lib/geo";
 import { isStoreOpen } from "@/lib/storeHours";
@@ -175,6 +176,13 @@ function mergeDeals(primary: Deal[], customDeals: Deal[]): Deal[] {
     if (!merged.has(key) && !duplicate) merged.set(key, deal);
   }
   return [...merged.values()];
+}
+
+function getDealCreatedAt(deal: Deal): number {
+  const createdAt = deal.created_at ? Date.parse(deal.created_at) : Number.NaN;
+  if (Number.isFinite(createdAt)) return createdAt;
+  const localIdTimestamp = String(deal.id).match(/^local-(\d+)$/);
+  return localIdTimestamp ? Number(localIdTimestamp[1]) : 0;
 }
 
 function mapSupabaseDeal(record: Record<string, unknown>): Deal {
@@ -521,7 +529,27 @@ export default function StorefrontPage() {
       });
   }, []);
 
-  const filteredDeals = useMemo(() => deals.filter((deal) => {
+  const isOutOfAreaGps = useMemo(() => {
+    if (locationStatus !== 'gps_active' || !coords) return false;
+    const distanceToThoothukudi = calculateDistance(coords.lat, coords.lng, 8.7642, 78.1348);
+    const distanceToAuthoor = calculateDistance(coords.lat, coords.lng, 8.6256, 78.0772);
+    return Math.min(distanceToThoothukudi, distanceToAuthoor) > 25;
+  }, [coords, locationStatus]);
+
+  const outOfAreaDeals = useMemo(() => {
+    const activePartnerDeals = deals.filter(isVerifiedActiveDeal);
+    const sourceDeals = activePartnerDeals.length > 0
+      ? activePartnerDeals
+      : VERIFIED_REAL_DEALS.filter(isVerifiedActiveDeal);
+    return sourceDeals
+      .map((deal, index) => ({ deal, index }))
+      .sort((a, b) => getDealCreatedAt(b.deal) - getDealCreatedAt(a.deal) || a.index - b.index)
+      .map(({ deal }) => deal);
+  }, [deals]);
+
+  const filteredDeals = useMemo(() => {
+    if (isOutOfAreaGps) return outOfAreaDeals;
+    return deals.filter((deal) => {
     const normalizedArea = selectedArea.trim().toLocaleLowerCase();
     const matchesArea =
       normalizedArea === 'all' ||
@@ -545,7 +573,8 @@ export default function StorefrontPage() {
       distance === null ||
       distance <= maxRadius;
     return matchesArea && matchesSearch && matchesSaved && matchesCategory && matchesRadius;
-  }), [deals, selectedArea, searchQuery, showSavedOnly, favorites, selectedCategory, coords, maxRadius, locationStatus]);
+    });
+  }, [deals, isOutOfAreaGps, outOfAreaDeals, selectedArea, searchQuery, showSavedOnly, favorites, selectedCategory, coords, maxRadius, locationStatus]);
 
   useEffect(() => {
     if (discoveryView !== 'list') return;
@@ -710,6 +739,11 @@ export default function StorefrontPage() {
       <PushNotificationManager />
 
       <div className="mx-auto max-w-5xl space-y-4 px-4 py-4 sm:space-y-6 sm:p-6">
+        {isOutOfAreaGps && (
+          <p role="status" className="text-center text-xs text-slate-400">
+            Showing Thoothukudi &amp; Authoor Partner Deals
+          </p>
+        )}
         {storageError && (
           <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             {storageError}
@@ -924,7 +958,7 @@ export default function StorefrontPage() {
                   <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
                   <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
                   <div className="mt-3">
-                    <DealTimer expiresAt={deal.expires_at} />
+                    <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} />
                   </div>
 
                   {/* Live Travel Distance / Navigation Status */}

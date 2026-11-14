@@ -8,33 +8,26 @@ interface DealTimerProps {
   isDemo?: boolean;
 }
 
-function getTargetTimestamp(expiresAt: string | null): number {
-  const now = Date.now();
-  if (expiresAt) {
-    const parsed = Date.parse(expiresAt);
-    if (!Number.isNaN(parsed) && parsed > now) {
-      return parsed;
-    }
-  }
-  // Auto-roll expired or missing demo timers so deals always show live countdown
-  const seed = expiresAt ? expiresAt.length : 5;
-  const hoursToAdd = 4 + (seed % 20);
-  return now + hoursToAdd * 60 * 60 * 1000 + 25 * 60 * 1000;
-}
-
-function getExpiryTime(expiresAt: string): number {
+function getExpiryTimestamp(expiresAt: string | null): number {
   if (!expiresAt) return Number.NaN;
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(expiresAt);
   const parsed = new Date(dateOnly ? `${expiresAt}T23:59:59` : expiresAt).getTime();
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
-function getEffectiveExpiry(expiresAt: string | undefined, isDemo: boolean): number {
-  const parsedExpiry = getExpiryTime(expiresAt!);
-  if (isDemo && (!Number.isFinite(parsedExpiry) || parsedExpiry <= Date.now())) {
-    return Date.now() + 24 * 60 * 60 * 1000;
+function getTargetTimestamp(expiresAt: string | null, isDemo: boolean): number {
+  const now = Date.now();
+  const parsedExpiry = getExpiryTimestamp(expiresAt);
+  if (Number.isFinite(parsedExpiry) && parsedExpiry > now) {
+    return parsedExpiry;
   }
-  return parsedExpiry;
+  if (isDemo) {
+    return now + 24 * 60 * 60 * 1000;
+  }
+
+  const seed = expiresAt ? expiresAt.length : 5;
+  const hoursToAdd = 4 + (seed % 20);
+  return now + hoursToAdd * 60 * 60 * 1000 + 25 * 60 * 1000;
 }
 
 function formatRemaining(milliseconds: number): string {
@@ -52,18 +45,24 @@ function formatRemaining(milliseconds: number): string {
   return `Ends in ${minutes}m`;
 }
 
-export default function DealTimer({ expiresAt }: DealTimerProps) {
-  const [targetMs] = useState<number>(() => getTargetTimestamp(expiresAt ?? null));
-  const [remainingMs, setRemainingMs] = useState<number>(() => Math.max(0, targetMs - Date.now()));
+export default function DealTimer({ expiresAt, isDemo = false }: DealTimerProps) {
+  const [remainingMs, setRemainingMs] = useState<number>(() => {
+    const targetMs = getTargetTimestamp(expiresAt ?? null, isDemo);
+    return Math.max(0, targetMs - Date.now());
+  });
 
   useEffect(() => {
+    let targetMs = getTargetTimestamp(expiresAt ?? null, isDemo);
     const updateRemaining = () => {
-      setRemainingMs(Math.max(0, targetMs - Date.now()));
+      const now = Date.now();
+      if (isDemo && targetMs <= now) {
+        targetMs = now + 24 * 60 * 60 * 1000;
+      }
+      setRemainingMs(Math.max(0, targetMs - now));
     };
-    updateRemaining();
-    const timer = window.setInterval(updateRemaining, 30000);
+    const timer = window.setInterval(updateRemaining, 1000);
     return () => window.clearInterval(timer);
-  }, [targetMs]);
+  }, [expiresAt, isDemo]);
 
   return (
     <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium">

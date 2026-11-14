@@ -21,6 +21,7 @@ export interface Deal {
   category: string;
   location?: string;
   area?: string;
+  created_at?: string;
   phone?: string;
   expires_at?: string;
   opening_time?: string;
@@ -161,6 +162,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     category: typeof record.category === 'string' ? record.category : '',
     location: typeof locationValue === 'string' ? locationValue : '',
     area: typeof record.area === 'string' ? record.area : undefined,
+    created_at: typeof record.created_at === 'string' ? record.created_at : undefined,
     phone: typeof whatsappNumberValue === 'string' ? whatsappNumberValue : undefined,
     expires_at: typeof record.expires_at === 'string' ? record.expires_at : undefined,
     opening_time: typeof openingTime === 'string' ? openingTime : undefined,
@@ -234,6 +236,7 @@ export function slugifyStoreName(name: string): string {
 
 export function isDealActive(deal: Deal): boolean {
   if (deal.is_active === false) return false;
+  if (deal.is_demo === true) return true;
   if (!deal.expires_at) return true;
   const expiration = /^\d{4}-\d{2}-\d{2}$/.test(deal.expires_at)
     ? `${deal.expires_at}T23:59:59`
