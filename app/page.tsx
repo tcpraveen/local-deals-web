@@ -94,6 +94,16 @@ const UI_TRANSLATIONS: Record<string, string> = {
   'Estimated Transit': 'பயண நேரம்',
   'Call Shop': 'அழைக்கவும்',
   'Merchant Portal': 'வியாபாரி பக்கம்',
+  'Open Now': 'இப்போது திறந்திருக்கும்',
+  Closed: 'மூடப்பட்டுள்ளது',
+  New: 'புதியது',
+  'km away': 'கி.மீ. தொலைவில்',
+  'vouchers left': 'வவுச்சர்கள் மீதம்',
+  'Your Exclusive Voucher Code': 'உங்களுக்கான பிரத்யேக வவுச்சர் குறியீடு',
+  'Present this counter-side at checkout': 'கட்டணம் செலுத்தும்போது இந்த குறியீட்டைக் காட்டுங்கள்',
+  'Present this code at the counter to claim your offer.': 'சலுகையைப் பெற கடையில் இந்த குறியீட்டைக் காட்டுங்கள்.',
+  'Enable GPS for ETA': 'தூரம் மற்றும் நேரத்தைக் காண GPS இயக்கவும்',
+  'Local outlet': 'அருகிலுள்ள கடை',
   'Verified local retail discovery': 'சரிபார்க்கப்பட்ட உள்ளூர் சலுகைகள்',
   'Verified local retail discovery • Thoothukudi & Authoor': 'தூத்துக்குடி மற்றும் ஆத்தூரின் சரிபார்க்கப்பட்ட உள்ளூர் சலுகைகள்',
   'Search deals, products, or stores...': 'சலுகைகள், பொருட்கள் அல்லது கடைகளைத் தேடுங்கள்...',
@@ -135,6 +145,21 @@ function matchesDealCategory(deal: Deal, selectedCategory: (typeof DEAL_CATEGORI
     .join(' ')
     .toLocaleLowerCase();
   return CATEGORY_KEYWORDS[selectedCategory].some((keyword) => searchableText.includes(keyword));
+}
+
+function getDealImage(deal: Deal): string {
+  if (deal.image_url || deal.image) return deal.image_url || deal.image;
+  const category = `${deal.category} ${deal.business} ${deal.title}`.toLocaleLowerCase();
+  if (/electronics|inverter|solar|technology|tech/.test(category)) {
+    return 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=960&q=80';
+  }
+  if (/fashion|textile|clothing|apparel/.test(category)) {
+    return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=960&q=80';
+  }
+  if (/food|dining|restaurant|cafe|grocery/.test(category)) {
+    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=960&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=960&q=80';
 }
 
 async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number): Promise<T> {
@@ -637,12 +662,6 @@ export default function StorefrontPage() {
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div className="flex shrink-0 items-center gap-2">
               <InstallPrompt />
-              <Link
-                href="/merchant"
-                className="whitespace-nowrap rounded-xl border border-slate-700/80 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200"
-              >
-                Merchant Portal
-              </Link>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
             <div
@@ -859,6 +878,7 @@ export default function StorefrontPage() {
             <DealMap
               deals={filteredDeals}
               userCoordinates={locationStatus === 'location_unavailable' ? null : coords}
+              language={language}
             />
           )
         ) : (
@@ -875,6 +895,7 @@ export default function StorefrontPage() {
               ? calculateDistance(coords.lat, coords.lng, deal.lat, deal.lng)
               : null;
             const eta = distance !== null ? estimateTravelDuration(distance) : null;
+            const outletNeighborhood = deal.address || deal.store_address || deal.location || deal.business;
             const voucherCode = claimedDeals[String(deal.id)];
             const businessName = deal.storeName || deal.business;
             const discountText = deal.discountBadge || deal.discount;
@@ -898,9 +919,15 @@ export default function StorefrontPage() {
               <article
                 key={deal.id}
                 data-deal-id={String(deal.id)}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition"
+                className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 flex flex-col justify-between transition hover:border-slate-700/80"
               >
-                <div>
+                <img
+                  src={getDealImage(deal)}
+                  alt={`${businessName} deal`}
+                  className="aspect-video w-full rounded-t-2xl object-cover"
+                  loading="lazy"
+                />
+                <div className="min-w-0 p-4 sm:p-5">
                   {/* Badges */}
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -913,7 +940,7 @@ export default function StorefrontPage() {
                             ? 'border-emerald-700 bg-emerald-950/70 text-emerald-300'
                             : 'border-slate-700 bg-slate-800 text-slate-400'
                         }`}>
-                          {storeOpen ? 'Open Now' : 'Closed'}
+                          {translate(storeOpen ? 'Open Now' : 'Closed')}
                         </span>
                       )}
                       <span className="text-xs font-black px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">
@@ -939,7 +966,7 @@ export default function StorefrontPage() {
                       ✓ {translate('Verified Local Partner')}
                     </span>
                     <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-200">
-                      ★ {typeof deal.rating === 'number' ? deal.rating.toFixed(1) : 'New'}
+                      ★ {typeof deal.rating === 'number' ? deal.rating.toFixed(1) : translate('New')}
                     </span>
                     {(
                       (deal.views_count || 0) +
@@ -954,31 +981,35 @@ export default function StorefrontPage() {
                   </div>
 
                   {/* Title & Shop Details */}
-                  <h2 className="text-xl font-black mt-3 text-white">{businessName}</h2>
-                  <p className="text-xs font-medium text-blue-400 mt-0.5">{deal.title}</p>
-                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">{deal.address}</p>
+                  <h2 className="mt-3 break-words text-xl font-black text-white">{businessName}</h2>
+                  <p className="mt-0.5 break-words text-xs font-medium text-blue-400">{deal.title}</p>
+                  <p className="mt-2 break-words text-xs leading-relaxed text-slate-400">{deal.address}</p>
                   <div className="mt-3">
-                    <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} />
+                    <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} language={language} />
                   </div>
 
                   {/* Live Travel Distance / Navigation Status */}
                   <div className="mt-4 p-3.5 bg-slate-950/90 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                    <div>
+                    <div className="min-w-0">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">
                         {translate('Calculated Distance')}
                       </span>
-                      <span className="text-sm font-black text-slate-100">
-                        {distance !== null ? `${distance.toFixed(2)} km away` : "Enable GPS for ETA"}
+                      <span className="break-words text-sm font-black text-slate-100">
+                        {distance !== null
+                          ? `~${distance.toFixed(1)} ${translate('km away')}`
+                          : isOutOfAreaGps
+                            ? outletNeighborhood
+                            : translate('Enable GPS for ETA')}
                       </span>
                     </div>
-                    <div className="text-right">
+                    {(eta !== null || !isOutOfAreaGps) && <div className="min-w-0 text-right">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">
                         {translate('Estimated Transit')}
                       </span>
-                      <span className="text-xs font-semibold text-blue-400">
-                        {eta || "Enable GPS for ETA"}
+                      <span className="break-words text-xs font-semibold text-blue-400">
+                        {eta || translate('Enable GPS for ETA')}
                       </span>
-                    </div>
+                    </div>}
                   </div>
 
                   {/* Pricing Overview */}
@@ -995,7 +1026,7 @@ export default function StorefrontPage() {
                     )}
                     {typeof vouchersLeft === 'number' && (
                       <span className="ml-auto text-[11px] font-bold text-amber-400">
-                        {vouchersLeft} vouchers left
+                        {vouchersLeft} {translate('vouchers left')}
                       </span>
                     )}
                   </div>
@@ -1003,11 +1034,11 @@ export default function StorefrontPage() {
                   {/* Voucher Claim Box */}
                   {voucherCode && (
                     <div className="mt-4 p-3 rounded-xl bg-blue-950/40 border border-blue-600/40 text-center">
-                      <p className="text-[11px] font-semibold text-blue-300">Your Exclusive Voucher Code</p>
+                      <p className="text-[11px] font-semibold text-blue-300">{translate('Your Exclusive Voucher Code')}</p>
                       <p className="text-lg font-mono font-black text-white tracking-widest mt-0.5">
                         {voucherCode}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-1">Present this counter-side at checkout</p>
+                      <p className="text-[10px] text-slate-400 mt-1">{translate('Present this counter-side at checkout')}</p>
                     </div>
                   )}
                 </div>
@@ -1031,7 +1062,7 @@ export default function StorefrontPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => void recordDealMetric(deal, 'whatsapp_clicks')}
-                      className="col-span-2 flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-2 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
+                      className="col-span-2 flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-2 py-2.5 text-center text-xs font-bold leading-snug text-emerald-300 transition hover:bg-emerald-900/60 active:scale-95"
                     >
                       <span aria-hidden="true">💬</span> {translate('Claim on WhatsApp')}
                     </a>
@@ -1046,7 +1077,7 @@ export default function StorefrontPage() {
                     </button>
                     <button
                       onClick={() => void handleClaim(deal)}
-                      className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600/20 px-2 py-2.5 text-xs font-bold text-indigo-200 transition hover:bg-indigo-600/30"
+                      className="flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600/20 px-2 py-2.5 text-center text-xs font-bold leading-snug text-indigo-200 transition hover:bg-indigo-600/30"
                     >
                       {translate('Get QR Pass')}
                     </button>
@@ -1058,7 +1089,7 @@ export default function StorefrontPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => void recordDealMetric(deal, 'map_clicks')}
-                    className="w-full text-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5"
+                    className="w-full min-w-0 whitespace-normal break-words px-4 py-2.5 text-center text-xs font-bold tracking-wide text-white transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500"
                   >
                     <span>{translate('Get Directions')}</span>
                     <span aria-hidden="true">→</span>
@@ -1095,7 +1126,7 @@ export default function StorefrontPage() {
                 className="h-[180px] w-[180px]"
               />
             </div>
-            <p className="mt-3 text-xs text-slate-400">Present this code at the counter to claim your offer.</p>
+            <p className="mt-3 text-xs text-slate-400">{translate('Present this code at the counter to claim your offer.')}</p>
             <button
               type="button"
               onClick={() => setActiveVoucher(null)}
@@ -1151,6 +1182,14 @@ export default function StorefrontPage() {
           {shareToast}
         </div>
       )}
+      <footer className="border-t border-slate-800/80 px-4 py-5 text-center">
+        <Link
+          href="/merchant"
+          className="text-xs text-slate-500 transition hover:text-slate-300"
+        >
+          {translate('Merchant Portal')}
+        </Link>
+      </footer>
       <AIAssistant coords={coords} deals={deals} />
     </main>
   );

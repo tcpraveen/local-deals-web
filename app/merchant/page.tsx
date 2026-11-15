@@ -7,7 +7,13 @@ import Link from 'next/link';
 import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Eye, MapPin, MessageCircle, X } from 'lucide-react';
-import { Deal, isDealActive, normalizeDeal, slugifyStoreName } from '@/lib/deals';
+import {
+  Deal,
+  isDealActive,
+  normalizeDeal,
+  slugifyStoreName,
+  VERIFIED_REAL_DEALS,
+} from '@/lib/deals';
 import FlashDealBroadcast from './FlashDealBroadcast';
 
 const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
@@ -341,10 +347,16 @@ export default function MerchantPortal() {
       );
 
       if (error) throw error;
-      const databaseDeals = (data || []).filter((deal: Deal) =>
-        isDealActive(deal) && Boolean(deal.business?.trim()) && Boolean(deal.title?.trim())
+      const databaseDeals = (data || []).map((record: Record<string, unknown>) =>
+        normalizeDeal(record)
+      ).filter((deal: Deal) =>
+        deal.is_verified_merchant === true &&
+        isDealActive(deal) &&
+        Boolean(deal.business?.trim()) &&
+        Boolean(deal.title?.trim())
       );
-      setMyDeals(mergeMerchantDeals(databaseDeals, localDeals));
+      const activeDeals = databaseDeals.length > 0 ? databaseDeals : VERIFIED_REAL_DEALS;
+      setMyDeals(mergeMerchantDeals(activeDeals, localDeals));
     } catch (err: unknown) {
       console.error('Error fetching merchant deals:', getErrorMessage(err));
       setMyDeals(localDeals);

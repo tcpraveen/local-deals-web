@@ -11,6 +11,7 @@ import { calculateDistance } from '@/lib/geo';
 interface DealMapProps {
   deals: Deal[];
   userCoordinates: { lat: number; lng: number } | null;
+  language?: 'en' | 'ta';
 }
 
 const FALLBACK_CENTER = { lat: 8.7642, lng: 78.1348 };
@@ -42,7 +43,7 @@ function markerIcon(deal: Deal) {
   });
 }
 
-export default function DealMap({ deals, userCoordinates }: DealMapProps) {
+export default function DealMap({ deals, userCoordinates, language = 'en' }: DealMapProps) {
   const center = useMemo<[number, number]>(
     () => userCoordinates
       ? [userCoordinates.lat, userCoordinates.lng]
@@ -97,12 +98,12 @@ export default function DealMap({ deals, userCoordinates }: DealMapProps) {
                   <p className="text-xs text-slate-600">
                     {distance === null ? deal.location || 'Local offer' : `${distance.toFixed(2)} km away`}
                   </p>
-                  <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} />
+                  <DealTimer expiresAt={deal.expires_at} isDemo={deal.is_demo} language={language} />
                   <Link
                     href={`/store/${slugifyStoreName(deal.business)}`}
                     className="block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-bold text-white"
                   >
-                    View Details
+                    {language === 'ta' ? 'விவரங்களைக் காண்க' : 'View Details'}
                   </Link>
                 </article>
               </Popup>

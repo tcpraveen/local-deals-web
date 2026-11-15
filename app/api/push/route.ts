@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
-import { slugifyStoreName } from '@/lib/deals';
+import { slugifyStoreName, VERIFIED_REAL_DEALS } from '@/lib/deals';
 
 export const runtime = 'nodejs';
 
@@ -67,9 +67,16 @@ export async function POST(request: Request) {
   }
   const dealId = body.deal_id;
   const message = typeof body.message === 'string' ? body.message.trim() : '';
+  const demoDeal = VERIFIED_REAL_DEALS.find(
+    (candidate) =>
+      String(candidate.id) === String(dealId) &&
+      candidate.is_demo === true &&
+      candidate.is_verified_merchant === true
+  );
   if (
     !(typeof dealId === 'string' && /^\d{1,20}$/.test(dealId)) &&
-    !(typeof dealId === 'number' && Number.isSafeInteger(dealId) && dealId > 0)
+    !(typeof dealId === 'number' && Number.isSafeInteger(dealId) && dealId > 0) &&
+    !demoDeal
   ) {
     return Response.json({ error: 'Select a valid offer.' }, { status: 400 });
   }
@@ -88,16 +95,22 @@ export async function POST(request: Request) {
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const { data: deal, error: dealError } = await adminClient
-    .from('deals')
-    .select('id,business,is_verified_merchant,is_active,expires_at')
-    .eq('id', String(dealId))
-    .eq('user_id', userData.user.id)
-    .eq('is_verified_merchant', true)
-    .maybeSingle();
-  if (dealError) {
-    console.error('Unable to verify merchant flash deal:', dealError);
-    return Response.json({ error: 'Unable to verify this offer.' }, { status: 500 });
+  let deal: { business: string; is_active: boolean | null; expires_at: string | null } | null;
+  if (demoDeal) {
+    deal = { business: demoDeal.business, is_active: true, expires_at: null };
+  } else {
+    const { data, error: dealError } = await adminClient
+      .from('deals')
+      .select('id,business,is_verified_merchant,is_active,expires_at')
+      .eq('id', String(dealId))
+      .eq('user_id', userData.user.id)
+      .eq('is_verified_merchant', true)
+      .maybeSingle();
+    if (dealError) {
+      console.error('Unable to verify merchant flash deal:', dealError);
+      return Response.json({ error: 'Unable to verify this offer.' }, { status: 500 });
+    }
+    deal = data;
   }
   if (!deal || deal.is_active === false) {
     return Response.json({ error: 'This active, verified merchant offer was not found.' }, { status: 403 });

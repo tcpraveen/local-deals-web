@@ -27,6 +27,7 @@ export interface Deal {
   opening_time?: string;
   closing_time?: string;
   image: string;
+  image_url?: string;
   description: string;
   scarcityText?: string;
   scarcity_text?: string;
@@ -80,6 +81,7 @@ export const VERIFIED_REAL_DEALS: Deal[] = [
     location: 'Main Bazaar',
     lat: 8.8053,
     lng: 78.145,
+    image_url: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=960&q=80',
     price: 499,
     originalPrice: 799,
     discount: '30% OFF',
@@ -109,6 +111,7 @@ export const VERIFIED_REAL_DEALS: Deal[] = [
     location: 'Authoor',
     lat: 8.6232,
     lng: 78.0699,
+    image_url: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=960&q=80',
     price: 999,
     originalPrice: 1499,
     discount: '25% OFF',
@@ -168,6 +171,7 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     opening_time: typeof openingTime === 'string' ? openingTime : undefined,
     closing_time: typeof closingTime === 'string' ? closingTime : undefined,
     image: typeof record.image === 'string' ? record.image : '',
+    image_url: typeof record.image_url === 'string' ? record.image_url : undefined,
     description: typeof record.description === 'string' ? record.description : '',
     scarcityText:
       typeof record.scarcityText === 'string'
