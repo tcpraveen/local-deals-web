@@ -171,7 +171,10 @@ export function normalizeDeal(record: Record<string, unknown>): Deal {
     opening_time: typeof openingTime === 'string' ? openingTime : undefined,
     closing_time: typeof closingTime === 'string' ? closingTime : undefined,
     image: typeof record.image === 'string' ? record.image : '',
-    image_url: typeof record.image_url === 'string' ? record.image_url : undefined,
+    image_url:
+      typeof record.image_url === 'string' && record.image_url.trim()
+        ? record.image_url.trim()
+        : undefined,
     description: typeof record.description === 'string' ? record.description : '',
     scarcityText:
       typeof record.scarcityText === 'string'

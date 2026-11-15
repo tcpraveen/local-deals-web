@@ -168,6 +168,7 @@ export default function MerchantPortal() {
     title: '',
     business: '',
     logo_url: '',
+    image_url: '',
     discount: '',
     original_price: '',
     deal_price: '',
@@ -451,7 +452,11 @@ export default function MerchantPortal() {
         .getPublicUrl(filePath);
 
       if (type === 'deal') {
-        setFormData((prev) => ({ ...prev, image: data.publicUrl }));
+        setFormData((prev) => ({
+          ...prev,
+          image: data.publicUrl,
+          image_url: data.publicUrl,
+        }));
       } else {
         setFormData((prev) => ({ ...prev, logo_url: data.publicUrl }));
       }
@@ -636,6 +641,7 @@ export default function MerchantPortal() {
       lat: formData.lat,
       lng: formData.lng,
       image: formData.image || null,
+      image_url: formData.image_url?.trim() || formData.image || null,
       description: formData.description || '',
       user_id: user.id,
     };
@@ -959,6 +965,7 @@ export default function MerchantPortal() {
                   title: '',
                   business: '',
                   logo_url: '',
+                  image_url: '',
                   discount: '',
                   original_price: '',
                   deal_price: '',
@@ -1872,6 +1879,20 @@ export default function MerchantPortal() {
                     placeholder="e.g. 42, Main Bazaar Road"
                     value={formData.store_address}
                     onChange={(e) => setFormData({ ...formData, store_address: e.target.value })}
+                    className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1">Image URL</label>
+                  <input
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://example.com/promotion-image.jpg"
+                    value={formData.image_url || ''}
+                    onChange={(event) =>
+                      setFormData({ ...formData, image_url: event.target.value })
+                    }
                     className="w-full bg-[#080d16] border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>

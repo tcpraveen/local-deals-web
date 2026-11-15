@@ -10,7 +10,6 @@ import {
   LOCATIONS,
   normalizeDeal,
   slugifyStoreName,
-  VERIFIED_REAL_DEALS,
 } from "@/lib/deals";
 import { calculateDistance, getUserLocation } from "@/lib/geo";
 import { isStoreOpen } from "@/lib/storeHours";
@@ -51,7 +50,6 @@ function estimateTravelDuration(distanceKm: number): string {
   return `~${transitMinutes} min drive`;
 }
 
-const CUSTOM_DEALS_STORAGE_KEY = 'ldh_custom_deals';
 const FAVORITES_STORAGE_KEY = 'ldh_favs';
 const CLAIMED_VOUCHERS_STORAGE_KEY = 'ldh_claimed_vouchers';
 const LANGUAGE_STORAGE_KEY = 'ldh_lang';
@@ -147,21 +145,6 @@ function matchesDealCategory(deal: Deal, selectedCategory: (typeof DEAL_CATEGORI
   return CATEGORY_KEYWORDS[selectedCategory].some((keyword) => searchableText.includes(keyword));
 }
 
-function getDealImage(deal: Deal): string {
-  if (deal.image_url || deal.image) return deal.image_url || deal.image;
-  const category = `${deal.category} ${deal.business} ${deal.title}`.toLocaleLowerCase();
-  if (/electronics|inverter|solar|technology|tech/.test(category)) {
-    return 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=960&q=80';
-  }
-  if (/fashion|textile|clothing|apparel/.test(category)) {
-    return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=960&q=80';
-  }
-  if (/food|dining|restaurant|cafe|grocery/.test(category)) {
-    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=960&q=80';
-  }
-  return 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=960&q=80';
-}
-
 async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -173,34 +156,6 @@ async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number): Pro
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
-}
-
-function readCustomDeals(): Deal[] {
-  try {
-    const stored = localStorage.getItem(CUSTOM_DEALS_STORAGE_KEY);
-    if (!stored) return [];
-    const records: unknown = JSON.parse(stored);
-    if (!Array.isArray(records)) return [];
-    return records
-      .filter((record): record is Record<string, unknown> => Boolean(record) && typeof record === 'object')
-      .map((record) => normalizeDeal(record))
-      .filter((deal) => isVerifiedActiveDeal(deal) && Boolean(deal.user_id));
-  } catch (error) {
-    console.error('Unable to load locally published deals:', error);
-    return [];
-  }
-}
-
-function mergeDeals(primary: Deal[], customDeals: Deal[]): Deal[] {
-  const merged = new Map<string, Deal>();
-  for (const deal of [...primary, ...customDeals]) {
-    const key = String(deal.id);
-    const duplicate = [...merged.values()].some(
-      (existing) => existing.business === deal.business && existing.title === deal.title
-    );
-    if (!merged.has(key) && !duplicate) merged.set(key, deal);
-  }
-  return [...merged.values()];
 }
 
 function getDealCreatedAt(deal: Deal): number {
@@ -284,11 +239,9 @@ export default function StorefrontPage() {
 
   useEffect(() => {
     const loadDeals = async () => {
-      const customDeals = readCustomDeals();
-      setDeals(customDeals);
-
       try {
         if (!isSupabaseConfigured) {
+          setDeals([]);
           return;
         }
 
@@ -297,17 +250,18 @@ export default function StorefrontPage() {
             .from('deals')
             .select('*')
             .eq('is_verified_merchant', true)
+            .eq('is_active', true)
             .order('created_at', { ascending: false }),
           3000
         );
         if (error) throw error;
         const mappedDeals = (data || []).map((record: Record<string, unknown>) =>
           mapSupabaseDeal(record)
-        );
-        setDeals(mergeDeals(mappedDeals, customDeals));
+        ).filter(isVerifiedActiveDeal);
+        setDeals(mappedDeals);
       } catch (error) {
         console.error('Error loading verified deals from Supabase:', error);
-        setDeals(customDeals);
+        setDeals([]);
       } finally {
         setDealsLoading(false);
       }
@@ -562,11 +516,8 @@ export default function StorefrontPage() {
   }, [coords, locationStatus]);
 
   const outOfAreaDeals = useMemo(() => {
-    const activePartnerDeals = deals.filter(isVerifiedActiveDeal);
-    const sourceDeals = activePartnerDeals.length > 0
-      ? activePartnerDeals
-      : VERIFIED_REAL_DEALS.filter(isVerifiedActiveDeal);
-    return sourceDeals
+    return deals
+      .filter(isVerifiedActiveDeal)
       .map((deal, index) => ({ deal, index }))
       .sort((a, b) => getDealCreatedAt(b.deal) - getDealCreatedAt(a.deal) || a.index - b.index)
       .map(({ deal }) => deal);
@@ -921,12 +872,20 @@ export default function StorefrontPage() {
                 data-deal-id={String(deal.id)}
                 className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 flex flex-col justify-between transition hover:border-slate-700/80"
               >
-                <img
-                  src={getDealImage(deal)}
-                  alt={`${businessName} deal`}
-                  className="aspect-video w-full rounded-t-2xl object-cover"
-                  loading="lazy"
-                />
+                {deal.image_url ? (
+                  <img
+                    src={deal.image_url}
+                    alt={`${businessName} deal`}
+                    className="aspect-video w-full rounded-t-2xl object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div
+                    role="img"
+                    aria-label={`${businessName} image unavailable`}
+                    className="aspect-video w-full rounded-t-2xl bg-slate-800/70"
+                  />
+                )}
                 <div className="min-w-0 p-4 sm:p-5">
                   {/* Badges */}
                   <div className="flex items-center justify-between gap-2">
